@@ -54,6 +54,12 @@ export interface OrderBookData {
   error?: string;
 }
 
+export interface TabGroup {
+  id: string;
+  name: string;
+  symbols: string[];
+}
+
 export interface Settings {
   symbol: string;
   interval: number;
@@ -62,4 +68,6 @@ export interface Settings {
   specialColor: string;
   showOrderLabels: boolean;
   depths: number[];
+  tabGroups: TabGroup[];
+  activeTabId: string;
 }

@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Sidebar from '@/components/Sidebar';
-import OrderBookChart from '@/components/OrderBookChart';
-import LargeOrderBadge from '@/components/LargeOrderBadge';
-import { fetchOrderBook } from '@/lib/api';
-import { OrderBookData, Settings } from '@/types/orderbook';
-import { Loader2 } from 'lucide-react';
+import SymbolPanel from '@/components/SymbolPanel';
+import { Settings, TabGroup } from '@/types/orderbook';
+
+const DEFAULT_TAB: TabGroup = {
+  id: 'default',
+  name: 'Main',
+  symbols: ['BTC/USDT'],
+};
 
 const DEFAULT_SETTINGS: Settings = {
   symbol: 'BTC/USDT',
@@ -16,102 +19,72 @@ const DEFAULT_SETTINGS: Settings = {
   specialColor: '#00FF2D',
   showOrderLabels: true,
   depths: [1000, 100],
+  tabGroups: [DEFAULT_TAB],
+  activeTabId: 'default',
 };
 
 export default function Home() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [data, setData] = useState<OrderBookData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<string>('');
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const loadData = useCallback(async () => {
-    try {
-      const result = await fetchOrderBook(settings.symbol, 1000);
-      if (result.error) {
-        setError(result.error);
-      } else {
-        setData(result);
-        setError(null);
-        setLastUpdate(result.timestamp || new Date().toLocaleTimeString());
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch data');
-    } finally {
-      setLoading(false);
-    }
-  }, [settings.symbol]);
+  const activeTab = useMemo(
+    () => settings.tabGroups.find((t: TabGroup) => t.id === settings.activeTabId),
+    [settings.tabGroups, settings.activeTabId]
+  );
+  const watchedSymbols = activeTab?.symbols || [];
 
-  // Initial load and polling
-  useEffect(() => {
-    setLoading(true);
-    loadData();
-
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(loadData, settings.interval * 1000);
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [loadData, settings.interval]);
+  // Determine compact mode: >2 symbols uses smaller charts
+  const compact = watchedSymbols.length > 2;
 
   // Update page title
   useEffect(() => {
-    document.title = `${settings.symbol} - OrderFlow`;
-  }, [settings.symbol]);
+    if (watchedSymbols.length === 0) {
+      document.title = 'OrderFlow Monitor';
+    } else if (watchedSymbols.length === 1) {
+      document.title = `${watchedSymbols[0]} - OrderFlow`;
+    } else {
+      document.title = `${watchedSymbols.length} symbols - OrderFlow`;
+    }
+  }, [watchedSymbols]);
+
+  const handleRemoveSymbol = (sym: string) => {
+    const updatedGroups = settings.tabGroups.map((g: TabGroup) =>
+      g.id === settings.activeTabId
+        ? { ...g, symbols: g.symbols.filter((s: string) => s !== sym) }
+        : g
+    );
+    setSettings({ ...settings, tabGroups: updatedGroups });
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar settings={settings} onChange={setSettings} />
 
-      <main className="flex-1 flex flex-col overflow-hidden p-2 gap-1">
-        {/* Large order badge */}
-        {data?.large_order && (
-          <LargeOrderBadge order={data.large_order} symbol={data.symbol} />
+      <main className="flex-1 flex flex-col overflow-y-auto p-2 gap-2">
+        {watchedSymbols.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center text-gray-500">
+              <p className="text-lg mb-2">No symbols selected</p>
+              <p className="text-sm">Use the sidebar to search and add symbols to monitor</p>
+            </div>
+          </div>
+        ) : (
+          watchedSymbols.map((sym: string) => (
+            <SymbolPanel
+              key={sym}
+              symbol={sym}
+              settings={settings}
+              onRemove={handleRemoveSymbol}
+              compact={compact}
+            />
+          ))
         )}
-
-        {/* Charts */}
-        {loading && !data ? (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-            <span className="ml-3 text-gray-400">Loading order book data...</span>
-          </div>
-        ) : error ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-red-300">
-              {error}
-            </div>
-          </div>
-        ) : data ? (
-          <>
-            <div className="flex-1 min-h-0">
-              <OrderBookChart
-                data={data}
-                depth={1000}
-                settings={settings}
-                emas={data.emas_1h}
-              />
-            </div>
-            <div className="flex-1 min-h-0">
-              <OrderBookChart
-                data={data}
-                depth={100}
-                settings={settings}
-                emas={data.emas_5m}
-              />
-            </div>
-          </>
-        ) : null}
 
         {/* Status bar */}
         <div className="flex items-center justify-between px-3 py-1 bg-gray-900/50 rounded text-xs text-gray-500 shrink-0">
           <span>
-            {data ? `${settings.symbol} | Bids: ${data.bids.length} | Asks: ${data.asks.length}` : 'No data'}
+            {activeTab ? `${activeTab.name} | ${watchedSymbols.length} symbol(s)` : 'No tab'}
           </span>
           <span>
-            {lastUpdate && `Last update: ${lastUpdate} (UTC+8)`}
-            {' | '}
             Interval: {settings.interval}s
           </span>
         </div>
