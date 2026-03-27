@@ -2,7 +2,12 @@
 # OrderFlow Monitor - 双击启动
 # 同时启动 Python 后端和 Next.js 前端
 
+PROJECT_DIR="/Volumes/external/trade/订单薄数据监控-ts"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 如果脚本被拷贝到其他位置（如桌面），使用硬编码的项目路径
+if [ ! -d "$SCRIPT_DIR/frontend" ]; then
+    SCRIPT_DIR="$PROJECT_DIR"
+fi
 PYTHON="/opt/anaconda3/envs/trade/bin/python"
 
 echo "========================================="

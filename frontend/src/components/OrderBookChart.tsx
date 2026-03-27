@@ -8,6 +8,7 @@ interface Props {
   depth: number;
   settings: Settings;
   emas: Record<string, number>;
+  showSummary?: boolean;
 }
 
 function formatPrice(price: number): string {
@@ -16,7 +17,7 @@ function formatPrice(price: number): string {
   return price.toFixed(3);
 }
 
-export default function OrderBookChart({ data, depth, settings, emas }: Props) {
+export default function OrderBookChart({ data, depth, settings, emas, showSummary = true }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number>(0);
@@ -69,7 +70,7 @@ export default function OrderBookChart({ data, depth, settings, emas }: Props) {
 
     const W = rect.width;
     const H = rect.height;
-    const PAD = { top: 30, right: 60, bottom: 50, left: 70 };
+    const PAD = { top: 30, right: 60, bottom: showSummary ? 50 : 30, left: 70 };
     const plotW = W - PAD.left - PAD.right;
     const plotH = H - PAD.top - PAD.bottom;
 
@@ -282,12 +283,48 @@ export default function OrderBookChart({ data, depth, settings, emas }: Props) {
     ctx.fillStyle = '#e6edf3';
     ctx.fillText('Asks', legendX + 76, 16);
 
-    // Summary at bottom
-    if (data.summary) {
+    // Summary at bottom with colored status
+    if (showSummary && data.summary) {
       ctx.font = '10px monospace';
-      ctx.fillStyle = '#8b949e';
-      ctx.textAlign = 'center';
-      ctx.fillText(data.summary, W / 2, H - 4);
+
+      // Split by " | " and color each segment based on keywords
+      const segments = data.summary.split(' | ');
+      const sep = ' | ';
+      const fullText = segments.join(sep);
+      const totalWidth = ctx.measureText(fullText).width;
+      let curX = (W - totalWidth) / 2;
+
+      segments.forEach((seg, idx) => {
+        if (idx > 0) {
+          ctx.fillStyle = '#555';
+          ctx.textAlign = 'left';
+          ctx.fillText(sep, curX, H - 4);
+          curX += ctx.measureText(sep).width;
+        }
+
+        // Determine color for entire segment
+        let color = '#8b949e';
+        if (/Bullish/i.test(seg)) {
+          if (/[5-6]\/6/.test(seg)) color = '#22c55e'; // strong green
+          else if (/[3-4]\/6/.test(seg)) color = '#4ade80'; // green
+          else color = '#86efac'; // light green
+        } else if (/Bearish/i.test(seg)) {
+          if (/[0-1]\/6/.test(seg)) color = '#ef4444'; // strong red
+          else if (/[2-3]\/6/.test(seg)) color = '#f87171'; // red
+          else color = '#fca5a5'; // light red
+        } else if (/Overbought/i.test(seg)) {
+          color = '#fb923c'; // orange
+        } else if (/Oversold/i.test(seg)) {
+          color = '#60a5fa'; // blue
+        } else if (/Neutral/i.test(seg)) {
+          color = '#a78bfa'; // purple
+        }
+
+        ctx.fillStyle = color;
+        ctx.textAlign = 'left';
+        ctx.fillText(seg, curX, H - 4);
+        curX += ctx.measureText(seg).width;
+      });
     }
 
   }, [chartData, settings, emas, data]);
@@ -299,7 +336,7 @@ export default function OrderBookChart({ data, depth, settings, emas }: Props) {
     if (!canvas || !tooltip || !chartData) return;
 
     const rect = canvas.getBoundingClientRect();
-    const PAD = { top: 30, right: 60, bottom: 50, left: 70 };
+    const PAD = { top: 30, right: 60, bottom: showSummary ? 50 : 30, left: 70 };
     const plotW = rect.width - PAD.left - PAD.right;
     const { minPrice, maxPrice, bids, asks } = chartData;
     const priceRange = maxPrice - minPrice || 1;

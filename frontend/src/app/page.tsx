@@ -32,9 +32,6 @@ export default function Home() {
   );
   const watchedSymbols = activeTab?.symbols || [];
 
-  // Determine compact mode: >2 symbols uses smaller charts
-  const compact = watchedSymbols.length > 2;
-
   // Update page title
   useEffect(() => {
     if (watchedSymbols.length === 0) {
@@ -74,7 +71,6 @@ export default function Home() {
               symbol={sym}
               settings={settings}
               onRemove={handleRemoveSymbol}
-              compact={compact}
             />
           ))
         )}

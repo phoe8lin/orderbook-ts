@@ -11,10 +11,9 @@ interface Props {
   symbol: string;
   settings: Settings;
   onRemove: (symbol: string) => void;
-  compact?: boolean;
 }
 
-export default function SymbolPanel({ symbol, settings, onRemove, compact = false }: Props) {
+export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
   const [data, setData] = useState<OrderBookData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +56,7 @@ export default function SymbolPanel({ symbol, settings, onRemove, compact = fals
     : 'bg-gray-900/50 border-gray-800';
 
   return (
-    <div className={`flex flex-col border rounded-lg overflow-hidden ${headerBg}`}>
+    <div className={`flex flex-col border rounded-lg overflow-hidden flex-1 min-h-[250px] ${headerBg}`}>
       {/* Panel header */}
       <div
         className="flex items-center justify-between px-3 py-1.5 cursor-pointer select-none"
@@ -100,7 +99,7 @@ export default function SymbolPanel({ symbol, settings, onRemove, compact = fals
 
       {/* Charts content */}
       {!collapsed && (
-        <div className="flex flex-col gap-0.5 px-1 pb-1">
+        <div className="flex flex-col gap-0.5 px-1 pb-1 flex-1 min-h-0">
           {error ? (
             <div className="flex items-center justify-center py-4">
               <div className="bg-red-900/30 border border-red-700 rounded px-3 py-2 text-red-300 text-xs">
@@ -109,7 +108,7 @@ export default function SymbolPanel({ symbol, settings, onRemove, compact = fals
             </div>
           ) : data ? (
             <>
-              <div style={{ height: compact ? '160px' : '220px' }}>
+              <div className="flex-[3] min-h-[120px]">
                 <OrderBookChart
                   data={data}
                   depth={1000}
@@ -117,12 +116,13 @@ export default function SymbolPanel({ symbol, settings, onRemove, compact = fals
                   emas={data.emas_1h}
                 />
               </div>
-              <div style={{ height: compact ? '140px' : '180px' }}>
+              <div className="flex-[2] min-h-[100px]">
                 <OrderBookChart
                   data={data}
                   depth={100}
                   settings={settings}
                   emas={data.emas_5m}
+                  showSummary={false}
                 />
               </div>
             </>
