@@ -1,0 +1,18 @@
+# Dependencies
+frontend/node_modules/
+frontend/.next/
+
+# Environment
+frontend/.env.local
+
+# OS
+.DS_Store
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# Tests output
+tests/
