@@ -261,14 +261,11 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
       ctx.fillText(formatPrice(price), x, PAD.top + plotH + 14);
     }
 
-    // Title
-    ctx.font = 'bold 12px sans-serif';
+    // Title (depth level only, symbol & time are in header)
+    ctx.font = 'bold 11px sans-serif';
     ctx.fillStyle = theme.titleText;
     ctx.textAlign = 'left';
-    ctx.fillText(
-      `${data.symbol} - ${depth} Depth - ${data.timestamp} (UTC+8)`,
-      PAD.left, 16
-    );
+    ctx.fillText(`${depth} Depth`, PAD.left, 16);
 
     // Legend
     ctx.font = '11px sans-serif';

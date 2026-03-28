@@ -152,11 +152,16 @@ def init_menubar():
     """初始化 macOS 菜单栏进程"""
     global _menubar_queue, _menubar_process
     try:
+        # 如果已有进程且存活，不重复启动
+        if _menubar_process is not None and _menubar_process.is_alive():
+            logger.info("Menubar process already running")
+            return
         _menubar_queue = multiprocessing.Queue()
-        _menubar_process = multiprocessing.Process(target=run_menubar, args=(_menubar_queue,))
+        ctx = multiprocessing.get_context('spawn')
+        _menubar_process = ctx.Process(target=run_menubar, args=(_menubar_queue,))
         _menubar_process.daemon = True
         _menubar_process.start()
-        logger.info("Menubar process started")
+        logger.info(f"Menubar process started (pid={_menubar_process.pid})")
     except Exception as e:
         logger.error(f"Failed to start menubar: {e}")
         _menubar_queue = None
@@ -164,9 +169,15 @@ def init_menubar():
 
 
 def send_to_menubar(symbol: str, order_info: dict):
-    """发送大单数据到菜单栏进程"""
-    global _menubar_queue
-    if _menubar_queue is not None and order_info is not None:
+    """发送大单数据到菜单栏进程，如果进程已死则自动重启"""
+    global _menubar_queue, _menubar_process
+    if order_info is None:
+        return
+    # 检查进程是否存活，不存活则重启
+    if _menubar_process is None or not _menubar_process.is_alive():
+        logger.warning("Menubar process not alive, restarting...")
+        init_menubar()
+    if _menubar_queue is not None:
         try:
             _menubar_queue.put_nowait({
                 'symbol': symbol,
@@ -305,13 +316,31 @@ def analyze_market(symbol, timeframes=None):
             df['ema50'] = ta.ema(df['close'], length=50)
             df['ema100'] = ta.ema(df['close'], length=100)
             df['ema200'] = ta.ema(df['close'], length=200)
-            df['rsi'] = ta.rsi(df['close'], length=14)
+
+            # Wave Filter: Stochastic RSI → Smooth K → Smooth D → Center
+            rsi_period = 14
+            smooth_k = 3
+            smooth_d = 3
+            ob_level = 40
+            os_level = -40
+
+            rsi_raw = ta.rsi(df['close'], length=rsi_period)
+            min_rsi = rsi_raw.rolling(window=rsi_period).min()
+            max_rsi = rsi_raw.rolling(window=rsi_period).max()
+            stoch_rsi = (rsi_raw - min_rsi) / (max_rsi - min_rsi)
+            stoch_rsi = stoch_rsi.fillna(0.5)
+            k_line = stoch_rsi.rolling(window=smooth_k).mean()
+            d_line = k_line.rolling(window=smooth_d).mean()
+            wave = (d_line - 0.5) * 100
+
+            df['wave'] = wave
 
             latest = df.iloc[-1]
+            wave_val = float(latest['wave']) if not pd.isna(latest['wave']) else 0.0
 
             analysis_results[timeframe] = {
                 'close': float(latest['close']),
-                'rsi': float(latest['rsi']),
+                'rsi': wave_val,
                 'ema20': float(latest['ema20']),
                 'ema50': float(latest['ema50']),
                 'ema100': float(latest['ema100']),
@@ -323,8 +352,8 @@ def analyze_market(symbol, timeframes=None):
                 'price_above_ema50': bool(latest['close'] > latest['ema50']),
                 'price_above_ema100': bool(latest['close'] > latest['ema100']),
                 'price_above_ema200': bool(latest['close'] > latest['ema200']),
-                'rsi_overbought': bool(latest['rsi'] > 70),
-                'rsi_oversold': bool(latest['rsi'] < 30)
+                'rsi_overbought': bool(wave_val > ob_level),
+                'rsi_oversold': bool(wave_val < os_level)
             }
 
             ema_values[timeframe] = {
@@ -361,7 +390,7 @@ def summarize_analysis(analysis_results, trend_results):
         trend_direction = "Bullish" if tr['price_above_ema20'] and tr['price_above_ema50'] else "Bearish"
         rsi_status = "Overbought" if tr['rsi_overbought'] else "Oversold" if tr['rsi_oversold'] else "Neutral"
 
-        summary.append(f"{timeframe}: {trend_direction} (Strength: {trend_strength}/6) | RSI: {rsi_status} ({ar['rsi']:.1f})")
+        summary.append(f"{timeframe}: {trend_direction} (Strength: {trend_strength}/6) | Wave: {rsi_status} ({ar['rsi']:.1f})")
 
     return " | ".join(summary)
 

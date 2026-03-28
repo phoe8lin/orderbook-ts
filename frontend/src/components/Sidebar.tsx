@@ -3,21 +3,24 @@
 import { useEffect, useState, useRef } from 'react';
 import { Settings, TabGroup, THEMES } from '@/types/orderbook';
 import { fetchSymbols } from '@/lib/api';
-import { TrendingUp, Plus, Save, Trash2, Sun, Moon } from 'lucide-react';
+import { TrendingUp, Plus, Save, Trash2, Sun, Moon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 interface Props {
   settings: Settings;
   onChange: (s: Settings) => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 const UPDATE_INTERVALS = [1, 2, 5, 10, 20, 30, 60];
 
-export default function Sidebar({ settings, onChange }: Props) {
+export default function Sidebar({ settings, onChange, collapsed, onToggleCollapse }: Props) {
   const [symbols, setSymbols] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [newTabName, setNewTabName] = useState('');
   const [showSaveTab, setShowSaveTab] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   const theme = THEMES[settings.theme];
@@ -36,6 +39,8 @@ export default function Sidebar({ settings, onChange }: Props) {
   const filteredSymbols = searchTerm
     ? symbols.filter((s: string) => s.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
+
+  const visibleSymbols = filteredSymbols.slice(0, 50);
 
   const update = (partial: Partial<Settings>) => {
     onChange({ ...settings, ...partial });
@@ -101,9 +106,36 @@ export default function Sidebar({ settings, onChange }: Props) {
     border: `1px solid ${active ? '#2563eb' : theme.inputBorder}`,
   });
 
+  if (collapsed) {
+    return (
+      <aside
+        className="w-12 flex flex-col items-center py-3 gap-3 h-screen shrink-0 transition-all duration-300"
+        style={{ backgroundColor: theme.sidebarBg, borderRight: `1px solid ${theme.sidebarBorder}` }}
+      >
+        <button
+          onClick={onToggleCollapse}
+          className="p-1.5 rounded-lg transition-colors hover:opacity-80"
+          style={{ color: theme.textSecondary }}
+          title="Expand sidebar"
+        >
+          <PanelLeftOpen size={18} />
+        </button>
+        <div className="w-6 h-px" style={{ backgroundColor: theme.border }} />
+        <button
+          onClick={toggleTheme}
+          className="p-1.5 rounded-lg transition-colors"
+          style={{ backgroundColor: theme.inputBg, color: theme.textSecondary }}
+          title={settings.theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
+        >
+          {settings.theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside
-      className="w-64 p-4 flex flex-col gap-3 overflow-y-auto h-screen shrink-0 transition-colors duration-300"
+      className="w-64 p-4 flex flex-col gap-3 overflow-y-auto h-screen shrink-0 transition-all duration-300"
       style={{ backgroundColor: theme.sidebarBg, borderRight: `1px solid ${theme.sidebarBorder}` }}
     >
       <div
@@ -114,14 +146,24 @@ export default function Sidebar({ settings, onChange }: Props) {
           <TrendingUp size={20} />
           <span>OrderFlow</span>
         </div>
-        <button
-          onClick={toggleTheme}
-          className="p-1.5 rounded-lg transition-colors"
-          style={{ backgroundColor: theme.inputBg, color: theme.textSecondary }}
-          title={settings.theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
-        >
-          {settings.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={toggleTheme}
+            className="p-1.5 rounded-lg transition-colors"
+            style={{ backgroundColor: theme.inputBg, color: theme.textSecondary }}
+            title={settings.theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
+          >
+            {settings.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+          <button
+            onClick={onToggleCollapse}
+            className="p-1.5 rounded-lg transition-colors"
+            style={{ backgroundColor: theme.inputBg, color: theme.textSecondary }}
+            title="Collapse sidebar"
+          >
+            <PanelLeftClose size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Tab groups */}
@@ -222,10 +264,32 @@ export default function Sidebar({ settings, onChange }: Props) {
           type="text"
           placeholder="Search symbol..."
           value={searchTerm}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            setSearchTerm(e.target.value);
+            setHighlightIndex(0);
+          }}
           onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-            if (e.key === 'Enter' && filteredSymbols.length > 0) {
-              addSymbol(filteredSymbols[0]);
+            if (visibleSymbols.length === 0) return;
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setHighlightIndex(prev => {
+                const next = Math.min(prev + 1, visibleSymbols.length - 1);
+                const el = listRef.current?.children[next] as HTMLElement;
+                el?.scrollIntoView({ block: 'nearest' });
+                return next;
+              });
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setHighlightIndex(prev => {
+                const next = Math.max(prev - 1, 0);
+                const el = listRef.current?.children[next] as HTMLElement;
+                el?.scrollIntoView({ block: 'nearest' });
+                return next;
+              });
+            } else if (e.key === 'Enter') {
+              e.preventDefault();
+              const target = visibleSymbols[highlightIndex] || visibleSymbols[0];
+              if (target) addSymbol(target);
             }
           }}
           className="w-full rounded px-2 py-1.5 text-sm mb-1 focus:outline-none"
@@ -239,17 +303,22 @@ export default function Sidebar({ settings, onChange }: Props) {
           >
             {loading ? (
               <div className="px-2 py-1.5 text-sm" style={{ color: theme.textMuted }}>Loading...</div>
-            ) : filteredSymbols.length === 0 ? (
+            ) : visibleSymbols.length === 0 ? (
               <div className="px-2 py-1.5 text-sm" style={{ color: theme.textMuted }}>No matches</div>
             ) : (
-              filteredSymbols.slice(0, 50).map((s: string) => (
+              visibleSymbols.map((s: string, i: number) => (
                 <div
                   key={s}
                   onClick={() => addSymbol(s)}
+                  onMouseEnter={() => setHighlightIndex(i)}
                   className="px-2 py-1 text-sm cursor-pointer transition-colors"
                   style={{
                     color: watchedSymbols.includes(s) ? '#60a5fa' : theme.text,
-                    backgroundColor: watchedSymbols.includes(s) ? (settings.theme === 'dark' ? 'rgba(37,99,235,0.2)' : 'rgba(37,99,235,0.1)') : 'transparent',
+                    backgroundColor: i === highlightIndex
+                      ? (settings.theme === 'dark' ? 'rgba(37,99,235,0.3)' : 'rgba(37,99,235,0.15)')
+                      : watchedSymbols.includes(s)
+                        ? (settings.theme === 'dark' ? 'rgba(37,99,235,0.2)' : 'rgba(37,99,235,0.1)')
+                        : 'transparent',
                   }}
                 >
                   {watchedSymbols.includes(s) ? `✓ ${s}` : s}

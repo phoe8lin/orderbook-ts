@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Sidebar from '@/components/Sidebar';
 import SymbolPanel from '@/components/SymbolPanel';
 import { Settings, TabGroup, THEMES } from '@/types/orderbook';
@@ -26,6 +26,9 @@ const DEFAULT_SETTINGS: Settings = {
 
 export default function Home() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const toggleSidebar = useCallback(() => setSidebarCollapsed(prev => !prev), []);
 
   const activeTab = useMemo(
     () => settings.tabGroups.find((t: TabGroup) => t.id === settings.activeTabId),
@@ -67,7 +70,7 @@ export default function Home() {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: theme.bg }}>
-      <Sidebar settings={settings} onChange={setSettings} />
+      <Sidebar settings={settings} onChange={setSettings} collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
 
       <main className="flex-1 flex flex-col overflow-y-auto p-2 gap-2">
         {watchedSymbols.length === 0 ? (

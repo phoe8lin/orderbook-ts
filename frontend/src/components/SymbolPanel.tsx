@@ -60,6 +60,35 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
     return { backgroundColor: theme.surfaceBg, borderColor: theme.border };
   };
 
+  const getSummaryBadges = () => {
+    if (!data?.summary) return null;
+    const segments = data.summary.split(' | ');
+    return segments.map((seg, idx) => {
+      let bgColor = isDark ? 'rgba(100,100,100,0.3)' : 'rgba(200,200,200,0.4)';
+      let textColor = theme.textSecondary;
+      if (/Bullish/i.test(seg)) {
+        if (/[5-6]\/6/.test(seg)) { bgColor = isDark ? 'rgba(34,197,94,0.25)' : 'rgba(220,252,231,0.9)'; textColor = isDark ? '#4ade80' : '#166534'; }
+        else if (/[3-4]\/6/.test(seg)) { bgColor = isDark ? 'rgba(74,222,128,0.2)' : 'rgba(220,252,231,0.7)'; textColor = isDark ? '#86efac' : '#15803d'; }
+        else { bgColor = isDark ? 'rgba(134,239,172,0.15)' : 'rgba(220,252,231,0.5)'; textColor = isDark ? '#bbf7d0' : '#166534'; }
+      } else if (/Bearish/i.test(seg)) {
+        if (/[0-1]\/6/.test(seg)) { bgColor = isDark ? 'rgba(239,68,68,0.25)' : 'rgba(254,226,226,0.9)'; textColor = isDark ? '#f87171' : '#991b1b'; }
+        else if (/[2-3]\/6/.test(seg)) { bgColor = isDark ? 'rgba(248,113,113,0.2)' : 'rgba(254,226,226,0.7)'; textColor = isDark ? '#fca5a5' : '#b91c1c'; }
+        else { bgColor = isDark ? 'rgba(252,165,165,0.15)' : 'rgba(254,226,226,0.5)'; textColor = isDark ? '#fecaca' : '#991b1b'; }
+      } else if (/Overbought/i.test(seg)) {
+        bgColor = isDark ? 'rgba(251,146,60,0.2)' : 'rgba(255,237,213,0.9)'; textColor = isDark ? '#fb923c' : '#c2410c';
+      } else if (/Oversold/i.test(seg)) {
+        bgColor = isDark ? 'rgba(96,165,250,0.2)' : 'rgba(219,234,254,0.9)'; textColor = isDark ? '#60a5fa' : '#1d4ed8';
+      } else if (/Neutral/i.test(seg)) {
+        bgColor = isDark ? 'rgba(167,139,250,0.15)' : 'rgba(237,233,254,0.9)'; textColor = isDark ? '#a78bfa' : '#6d28d9';
+      }
+      return (
+        <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded font-mono whitespace-nowrap" style={{ backgroundColor: bgColor, color: textColor }}>
+          {seg.trim()}
+        </span>
+      );
+    });
+  };
+
   return (
     <div
       className="flex flex-col rounded-lg overflow-hidden flex-1 min-h-[250px] transition-colors duration-300"
@@ -70,7 +99,7 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
         className="flex items-center justify-between px-3 py-1.5 cursor-pointer select-none"
         onClick={() => setCollapsed(!collapsed)}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
           <span className="font-bold text-sm" style={{ color: theme.text }}>{symbol}</span>
           {data?.current_price && (
             <span className="text-xs font-mono" style={{ color: theme.currentPrice }}>
@@ -91,6 +120,7 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
               {data.large_order.price < 1 ? data.large_order.price.toFixed(4) : data.large_order.price.toFixed(2)}
             </span>
           )}
+          {data?.summary && getSummaryBadges()}
           {loading && !data && (
             <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
           )}
@@ -132,6 +162,7 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
                   depth={1000}
                   settings={settings}
                   emas={data.emas_1h}
+                  showSummary={false}
                 />
               </div>
               <div className="flex-1 min-h-[100px]">
