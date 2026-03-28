@@ -60,6 +60,78 @@ export interface TabGroup {
   symbols: string[];
 }
 
+export type ThemeMode = 'dark' | 'light';
+
+export interface ThemeColors {
+  bg: string;
+  canvasBg: string;
+  gridLine: string;
+  text: string;
+  textSecondary: string;
+  textMuted: string;
+  border: string;
+  surfaceBg: string;
+  surfaceHover: string;
+  sidebarBg: string;
+  sidebarBorder: string;
+  inputBg: string;
+  inputBorder: string;
+  tooltipBg: string;
+  scrollTrack: string;
+  scrollThumb: string;
+  scrollThumbHover: string;
+  currentPrice: string;
+  titleText: string;
+  axisText: string;
+}
+
+export const THEMES: Record<ThemeMode, ThemeColors> = {
+  dark: {
+    bg: '#0d1117',
+    canvasBg: '#0d1117',
+    gridLine: '#1e2a3a',
+    text: '#e6edf3',
+    textSecondary: '#8b949e',
+    textMuted: '#484f58',
+    border: '#30363d',
+    surfaceBg: '#161b22',
+    surfaceHover: '#1c2128',
+    sidebarBg: '#111827',
+    sidebarBorder: '#1f2937',
+    inputBg: '#1f2937',
+    inputBorder: '#374151',
+    tooltipBg: 'rgba(13,17,23,0.95)',
+    scrollTrack: '#161b22',
+    scrollThumb: '#30363d',
+    scrollThumbHover: '#484f58',
+    currentPrice: '#00FFFF',
+    titleText: '#e6edf3',
+    axisText: '#8b949e',
+  },
+  light: {
+    bg: '#FAF8F5',
+    canvasBg: '#FFFFFF',
+    gridLine: '#E8E4DF',
+    text: '#2D2A26',
+    textSecondary: '#6B6560',
+    textMuted: '#A09A94',
+    border: '#DDD8D2',
+    surfaceBg: '#F5F2EE',
+    surfaceHover: '#EDE9E4',
+    sidebarBg: '#F0ECE7',
+    sidebarBorder: '#DDD8D2',
+    inputBg: '#FFFFFF',
+    inputBorder: '#CCC7C1',
+    tooltipBg: 'rgba(255,255,255,0.95)',
+    scrollTrack: '#F0ECE7',
+    scrollThumb: '#CCC7C1',
+    scrollThumbHover: '#A09A94',
+    currentPrice: '#0066CC',
+    titleText: '#2D2A26',
+    axisText: '#6B6560',
+  },
+};
+
 export interface Settings {
   symbol: string;
   interval: number;
@@ -70,4 +142,5 @@ export interface Settings {
   depths: number[];
   tabGroups: TabGroup[];
   activeTabId: string;
+  theme: ThemeMode;
 }

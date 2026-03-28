@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useMemo } from 'react';
-import { OrderBookData, TopOrder, Settings } from '@/types/orderbook';
+import { OrderBookData, TopOrder, Settings, THEMES } from '@/types/orderbook';
 
 interface Props {
   data: OrderBookData;
@@ -18,6 +18,7 @@ function formatPrice(price: number): string {
 }
 
 export default function OrderBookChart({ data, depth, settings, emas, showSummary = true }: Props) {
+  const theme = THEMES[settings.theme];
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number>(0);
@@ -85,11 +86,11 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
     const toY = (amount: number) => PAD.top + plotH - (amount / amountRange) * plotH;
 
     // Clear
-    ctx.fillStyle = '#0d1117';
+    ctx.fillStyle = theme.canvasBg;
     ctx.fillRect(0, 0, W, H);
 
     // Grid lines
-    ctx.strokeStyle = '#1e2a3a';
+    ctx.strokeStyle = theme.gridLine;
     ctx.lineWidth = 0.5;
     for (let i = 0; i <= 5; i++) {
       const y = PAD.top + (plotH / 5) * i;
@@ -182,7 +183,7 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
     // Current price label on x-axis only (no vertical line)
     const cpX = toX(currentPrice);
     ctx.font = 'bold 11px monospace';
-    ctx.fillStyle = '#00FFFF';
+    ctx.fillStyle = theme.currentPrice;
     ctx.textAlign = 'center';
     ctx.fillText(formatPrice(currentPrice), cpX, PAD.top + plotH + 14);
 
@@ -243,7 +244,7 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
 
     // Y axis labels (amount)
     ctx.font = '10px monospace';
-    ctx.fillStyle = '#8b949e';
+    ctx.fillStyle = theme.axisText;
     ctx.textAlign = 'right';
     for (let i = 0; i <= 5; i++) {
       const val = (amountRange / 5) * (5 - i);
@@ -262,7 +263,7 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
 
     // Title
     ctx.font = 'bold 12px sans-serif';
-    ctx.fillStyle = '#e6edf3';
+    ctx.fillStyle = theme.titleText;
     ctx.textAlign = 'left';
     ctx.fillText(
       `${data.symbol} - ${depth} Depth - ${data.timestamp} (UTC+8)`,
@@ -274,13 +275,13 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
     const legendX = W - PAD.right - 120;
     ctx.fillStyle = settings.bidColor;
     ctx.fillRect(legendX, 6, 12, 12);
-    ctx.fillStyle = '#e6edf3';
+    ctx.fillStyle = theme.text;
     ctx.textAlign = 'left';
     ctx.fillText('Bids', legendX + 16, 16);
 
     ctx.fillStyle = settings.askColor;
     ctx.fillRect(legendX + 60, 6, 12, 12);
-    ctx.fillStyle = '#e6edf3';
+    ctx.fillStyle = theme.text;
     ctx.fillText('Asks', legendX + 76, 16);
 
     // Summary at bottom with colored status
@@ -296,14 +297,14 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
 
       segments.forEach((seg, idx) => {
         if (idx > 0) {
-          ctx.fillStyle = '#555';
+          ctx.fillStyle = theme.textMuted;
           ctx.textAlign = 'left';
           ctx.fillText(sep, curX, H - 4);
           curX += ctx.measureText(sep).width;
         }
 
         // Determine color for entire segment
-        let color = '#8b949e';
+        let color = theme.textSecondary;
         if (/Bullish/i.test(seg)) {
           if (/[5-6]\/6/.test(seg)) color = '#22c55e'; // strong green
           else if (/[3-4]\/6/.test(seg)) color = '#4ade80'; // green
@@ -409,8 +410,8 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
       />
       <div
         ref={tooltipRef}
-        className="absolute hidden pointer-events-none bg-gray-900/95 border border-gray-600 rounded px-2 py-1 text-gray-200 z-50"
-        style={{ display: 'none' }}
+        className="absolute hidden pointer-events-none rounded px-2 py-1 z-50"
+        style={{ display: 'none', backgroundColor: theme.tooltipBg, border: `1px solid ${theme.border}`, color: theme.text }}
       />
     </div>
   );

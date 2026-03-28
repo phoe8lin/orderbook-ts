@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Sidebar from '@/components/Sidebar';
 import SymbolPanel from '@/components/SymbolPanel';
-import { Settings, TabGroup } from '@/types/orderbook';
+import { Settings, TabGroup, THEMES } from '@/types/orderbook';
 
 const DEFAULT_TAB: TabGroup = {
   id: 'default',
@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS: Settings = {
   depths: [1000, 100],
   tabGroups: [DEFAULT_TAB],
   activeTabId: 'default',
+  theme: 'dark',
 };
 
 export default function Home() {
@@ -31,6 +32,18 @@ export default function Home() {
     [settings.tabGroups, settings.activeTabId]
   );
   const watchedSymbols = activeTab?.symbols || [];
+
+  const theme = THEMES[settings.theme];
+
+  // Apply theme to body
+  useEffect(() => {
+    document.body.style.backgroundColor = theme.bg;
+    document.body.style.color = theme.text;
+    // Update CSS variables for scrollbars
+    document.documentElement.style.setProperty('--scroll-track', theme.scrollTrack);
+    document.documentElement.style.setProperty('--scroll-thumb', theme.scrollThumb);
+    document.documentElement.style.setProperty('--scroll-thumb-hover', theme.scrollThumbHover);
+  }, [settings.theme, theme]);
 
   // Update page title
   useEffect(() => {
@@ -53,13 +66,13 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: theme.bg }}>
       <Sidebar settings={settings} onChange={setSettings} />
 
       <main className="flex-1 flex flex-col overflow-y-auto p-2 gap-2">
         {watchedSymbols.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-gray-500">
+            <div className="text-center" style={{ color: theme.textMuted }}>
               <p className="text-lg mb-2">No symbols selected</p>
               <p className="text-sm">Use the sidebar to search and add symbols to monitor</p>
             </div>
@@ -76,7 +89,10 @@ export default function Home() {
         )}
 
         {/* Status bar */}
-        <div className="flex items-center justify-between px-3 py-1 bg-gray-900/50 rounded text-xs text-gray-500 shrink-0">
+        <div
+          className="flex items-center justify-between px-3 py-1 rounded text-xs shrink-0"
+          style={{ backgroundColor: theme.surfaceBg, color: theme.textMuted }}
+        >
           <span>
             {activeTab ? `${activeTab.name} | ${watchedSymbols.length} symbol(s)` : 'No tab'}
           </span>

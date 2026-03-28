@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import OrderBookChart from '@/components/OrderBookChart';
 import LargeOrderBadge from '@/components/LargeOrderBadge';
 import { fetchOrderBook } from '@/lib/api';
-import { OrderBookData, Settings } from '@/types/orderbook';
+import { OrderBookData, Settings, THEMES } from '@/types/orderbook';
 import { Loader2, X } from 'lucide-react';
 
 interface Props {
@@ -19,6 +19,8 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const theme = THEMES[settings.theme];
+  const isDark = settings.theme === 'dark';
 
   const loadData = useCallback(async () => {
     try {
@@ -49,30 +51,41 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
     };
   }, [loadData, settings.interval]);
 
-  const headerBg = data?.large_order
-    ? data.large_order.side === 'bid'
-      ? 'bg-emerald-900/30 border-emerald-800'
-      : 'bg-red-900/30 border-red-800'
-    : 'bg-gray-900/50 border-gray-800';
+  const getHeaderStyle = () => {
+    if (data?.large_order) {
+      return data.large_order.side === 'bid'
+        ? { backgroundColor: isDark ? 'rgba(6,78,59,0.3)' : 'rgba(220,252,231,0.8)', borderColor: isDark ? '#065f46' : '#86efac' }
+        : { backgroundColor: isDark ? 'rgba(127,29,29,0.3)' : 'rgba(254,226,226,0.8)', borderColor: isDark ? '#991b1b' : '#fca5a5' };
+    }
+    return { backgroundColor: theme.surfaceBg, borderColor: theme.border };
+  };
 
   return (
-    <div className={`flex flex-col border rounded-lg overflow-hidden flex-1 min-h-[250px] ${headerBg}`}>
+    <div
+      className="flex flex-col rounded-lg overflow-hidden flex-1 min-h-[250px] transition-colors duration-300"
+      style={{ border: `1px solid ${getHeaderStyle().borderColor}`, backgroundColor: getHeaderStyle().backgroundColor }}
+    >
       {/* Panel header */}
       <div
         className="flex items-center justify-between px-3 py-1.5 cursor-pointer select-none"
         onClick={() => setCollapsed(!collapsed)}
       >
         <div className="flex items-center gap-3">
-          <span className="font-bold text-sm text-gray-100">{symbol}</span>
+          <span className="font-bold text-sm" style={{ color: theme.text }}>{symbol}</span>
           {data?.current_price && (
-            <span className="text-xs font-mono text-cyan-400">
+            <span className="text-xs font-mono" style={{ color: theme.currentPrice }}>
               {data.current_price < 1 ? data.current_price.toFixed(4) : data.current_price.toFixed(2)}
             </span>
           )}
           {data?.large_order && (
-            <span className={`text-xs px-1.5 py-0.5 rounded ${
-              data.large_order.side === 'bid' ? 'bg-emerald-800 text-emerald-200' : 'bg-red-800 text-red-200'
-            }`}>
+            <span className="text-xs px-1.5 py-0.5 rounded" style={{
+              backgroundColor: data.large_order.side === 'bid'
+                ? (isDark ? '#065f46' : '#dcfce7')
+                : (isDark ? '#991b1b' : '#fee2e2'),
+              color: data.large_order.side === 'bid'
+                ? (isDark ? '#a7f3d0' : '#166534')
+                : (isDark ? '#fecaca' : '#991b1b'),
+            }}>
               {data.large_order.side === 'bid' ? '📈' : '📉'}{' '}
               {data.large_order.ratio.toFixed(1)}x @{' '}
               {data.large_order.price < 1 ? data.large_order.price.toFixed(4) : data.large_order.price.toFixed(2)}
@@ -84,12 +97,13 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
         </div>
         <div className="flex items-center gap-2">
           {data?.timestamp && (
-            <span className="text-[10px] text-gray-500">{data.timestamp}</span>
+            <span className="text-[10px]" style={{ color: theme.textMuted }}>{data.timestamp}</span>
           )}
-          <span className="text-gray-500 text-xs">{collapsed ? '▸' : '▾'}</span>
+          <span className="text-xs" style={{ color: theme.textMuted }}>{collapsed ? '▸' : '▾'}</span>
           <button
             onClick={(e) => { e.stopPropagation(); onRemove(symbol); }}
-            className="text-gray-600 hover:text-red-400 transition-colors p-0.5"
+            className="hover:text-red-400 transition-colors p-0.5"
+            style={{ color: theme.textMuted }}
             title="Remove"
           >
             <X size={14} />
@@ -102,13 +116,17 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
         <div className="flex flex-col gap-0.5 px-1 pb-1 flex-1 min-h-0">
           {error ? (
             <div className="flex items-center justify-center py-4">
-              <div className="bg-red-900/30 border border-red-700 rounded px-3 py-2 text-red-300 text-xs">
+              <div className="rounded px-3 py-2 text-xs" style={{
+                backgroundColor: isDark ? 'rgba(127,29,29,0.3)' : 'rgba(254,226,226,0.8)',
+                border: `1px solid ${isDark ? '#991b1b' : '#fca5a5'}`,
+                color: isDark ? '#fca5a5' : '#991b1b',
+              }}>
                 {error}
               </div>
             </div>
           ) : data ? (
             <>
-              <div className="flex-[3] min-h-[120px]">
+              <div className="flex-1 min-h-[120px]">
                 <OrderBookChart
                   data={data}
                   depth={1000}
@@ -116,7 +134,7 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
                   emas={data.emas_1h}
                 />
               </div>
-              <div className="flex-[2] min-h-[100px]">
+              <div className="flex-1 min-h-[100px]">
                 <OrderBookChart
                   data={data}
                   depth={100}
@@ -129,7 +147,7 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
           ) : (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-              <span className="ml-2 text-gray-400 text-sm">Loading {symbol}...</span>
+              <span className="ml-2 text-sm" style={{ color: theme.textSecondary }}>Loading {symbol}...</span>
             </div>
           )}
         </div>

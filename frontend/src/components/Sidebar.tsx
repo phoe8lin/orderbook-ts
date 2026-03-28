@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { Settings, TabGroup } from '@/types/orderbook';
+import { Settings, TabGroup, THEMES } from '@/types/orderbook';
 import { fetchSymbols } from '@/lib/api';
-import { TrendingUp, Plus, Save, Trash2 } from 'lucide-react';
+import { TrendingUp, Plus, Save, Trash2, Sun, Moon } from 'lucide-react';
 
 interface Props {
   settings: Settings;
@@ -20,6 +20,7 @@ export default function Sidebar({ settings, onChange }: Props) {
   const [showSaveTab, setShowSaveTab] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
+  const theme = THEMES[settings.theme];
   const activeTab = settings.tabGroups.find((t: TabGroup) => t.id === settings.activeTabId);
   const watchedSymbols = activeTab?.symbols || [];
 
@@ -89,16 +90,43 @@ export default function Sidebar({ settings, onChange }: Props) {
     });
   };
 
+  const toggleTheme = () => {
+    update({ theme: settings.theme === 'dark' ? 'light' : 'dark' });
+  };
+
+  const labelStyle = { color: theme.textSecondary };
+  const btnBase = (active: boolean) => ({
+    backgroundColor: active ? '#2563eb' : theme.inputBg,
+    color: active ? '#fff' : theme.textSecondary,
+    border: `1px solid ${active ? '#2563eb' : theme.inputBorder}`,
+  });
+
   return (
-    <aside className="w-64 bg-gray-900 border-r border-gray-800 p-4 flex flex-col gap-3 overflow-y-auto h-screen shrink-0">
-      <div className="flex items-center gap-2 text-gray-100 font-bold text-lg border-b border-gray-700 pb-3">
-        <TrendingUp size={20} />
-        <span>OrderFlow</span>
+    <aside
+      className="w-64 p-4 flex flex-col gap-3 overflow-y-auto h-screen shrink-0 transition-colors duration-300"
+      style={{ backgroundColor: theme.sidebarBg, borderRight: `1px solid ${theme.sidebarBorder}` }}
+    >
+      <div
+        className="flex items-center justify-between pb-3"
+        style={{ borderBottom: `1px solid ${theme.border}` }}
+      >
+        <div className="flex items-center gap-2 font-bold text-lg" style={{ color: theme.text }}>
+          <TrendingUp size={20} />
+          <span>OrderFlow</span>
+        </div>
+        <button
+          onClick={toggleTheme}
+          className="p-1.5 rounded-lg transition-colors"
+          style={{ backgroundColor: theme.inputBg, color: theme.textSecondary }}
+          title={settings.theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
+        >
+          {settings.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
       </div>
 
       {/* Tab groups */}
       <div>
-        <label className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1 block">
+        <label className="text-xs uppercase tracking-wider font-semibold mb-1 block" style={labelStyle}>
           Tab Groups
         </label>
         <div className="flex flex-wrap gap-1 mb-1">
@@ -106,18 +134,16 @@ export default function Sidebar({ settings, onChange }: Props) {
             <div key={tab.id} className="flex items-center gap-0.5">
               <button
                 onClick={() => switchTab(tab.id)}
-                className={`px-2 py-1 text-xs rounded-l transition-colors ${
-                  tab.id === settings.activeTabId
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                }`}
+                className="px-2 py-1 text-xs rounded-l transition-colors"
+                style={btnBase(tab.id === settings.activeTabId)}
               >
                 {tab.name} ({tab.symbols.length})
               </button>
               {settings.tabGroups.length > 1 && (
                 <button
                   onClick={() => deleteTab(tab.id)}
-                  className="px-1 py-1 text-xs bg-gray-800 text-gray-500 hover:text-red-400 hover:bg-gray-700 rounded-r transition-colors"
+                  className="px-1 py-1 text-xs rounded-r transition-colors hover:text-red-400"
+                  style={{ backgroundColor: theme.inputBg, color: theme.textMuted, border: `1px solid ${theme.inputBorder}`, borderLeft: 'none' }}
                   title="Delete tab"
                 >
                   ×
@@ -137,7 +163,8 @@ export default function Sidebar({ settings, onChange }: Props) {
                 if (e.key === 'Enter') saveNewTab();
                 if (e.key === 'Escape') setShowSaveTab(false);
               }}
-              className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
+              className="flex-1 rounded px-2 py-1 text-xs focus:outline-none"
+              style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.inputBorder}`, color: theme.text }}
               autoFocus
             />
             <button
@@ -150,7 +177,8 @@ export default function Sidebar({ settings, onChange }: Props) {
         ) : (
           <button
             onClick={() => setShowSaveTab(true)}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-blue-400 transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-xs hover:text-blue-400 transition-colors"
+            style={{ color: theme.textSecondary }}
           >
             <Plus size={12} /> New Tab
           </button>
@@ -159,33 +187,35 @@ export default function Sidebar({ settings, onChange }: Props) {
 
       {/* Watched symbols */}
       <div>
-        <label className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1 block">
+        <label className="text-xs uppercase tracking-wider font-semibold mb-1 block" style={labelStyle}>
           Watching ({watchedSymbols.length}/10)
         </label>
         <div className="flex flex-wrap gap-1 mb-2">
           {watchedSymbols.map((sym: string) => (
             <span
               key={sym}
-              className="flex items-center gap-1 px-2 py-0.5 bg-gray-800 border border-gray-700 rounded text-xs text-gray-200"
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+              style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.inputBorder}`, color: theme.text }}
             >
               {sym}
               <button
                 onClick={() => removeSymbol(sym)}
-                className="text-gray-500 hover:text-red-400 ml-0.5"
+                className="hover:text-red-400 ml-0.5"
+                style={{ color: theme.textMuted }}
               >
                 ×
               </button>
             </span>
           ))}
           {watchedSymbols.length === 0 && (
-            <span className="text-xs text-gray-500">Search below to add symbols</span>
+            <span className="text-xs" style={{ color: theme.textMuted }}>Search below to add symbols</span>
           )}
         </div>
       </div>
 
       {/* Symbol search & add */}
       <div>
-        <label className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1 block">
+        <label className="text-xs uppercase tracking-wider font-semibold mb-1 block" style={labelStyle}>
           Add Symbol
         </label>
         <input
@@ -198,27 +228,29 @@ export default function Sidebar({ settings, onChange }: Props) {
               addSymbol(filteredSymbols[0]);
             }
           }}
-          className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 mb-1 focus:outline-none focus:border-blue-500"
+          className="w-full rounded px-2 py-1.5 text-sm mb-1 focus:outline-none"
+          style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.inputBorder}`, color: theme.text }}
         />
         {searchTerm && (
           <div
             ref={listRef}
-            className="w-full bg-gray-800 border border-gray-700 rounded max-h-[140px] overflow-y-auto"
+            className="w-full rounded max-h-[140px] overflow-y-auto"
+            style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.inputBorder}` }}
           >
             {loading ? (
-              <div className="px-2 py-1.5 text-sm text-gray-500">Loading...</div>
+              <div className="px-2 py-1.5 text-sm" style={{ color: theme.textMuted }}>Loading...</div>
             ) : filteredSymbols.length === 0 ? (
-              <div className="px-2 py-1.5 text-sm text-gray-500">No matches</div>
+              <div className="px-2 py-1.5 text-sm" style={{ color: theme.textMuted }}>No matches</div>
             ) : (
               filteredSymbols.slice(0, 50).map((s: string) => (
                 <div
                   key={s}
                   onClick={() => addSymbol(s)}
-                  className={`px-2 py-1 text-sm cursor-pointer transition-colors ${
-                    watchedSymbols.includes(s)
-                      ? 'bg-blue-600/30 text-blue-300'
-                      : 'text-gray-300 hover:bg-gray-700'
-                  }`}
+                  className="px-2 py-1 text-sm cursor-pointer transition-colors"
+                  style={{
+                    color: watchedSymbols.includes(s) ? '#60a5fa' : theme.text,
+                    backgroundColor: watchedSymbols.includes(s) ? (settings.theme === 'dark' ? 'rgba(37,99,235,0.2)' : 'rgba(37,99,235,0.1)') : 'transparent',
+                  }}
                 >
                   {watchedSymbols.includes(s) ? `✓ ${s}` : s}
                 </div>
@@ -230,7 +262,7 @@ export default function Sidebar({ settings, onChange }: Props) {
 
       {/* Update interval */}
       <div>
-        <label className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1 block">
+        <label className="text-xs uppercase tracking-wider font-semibold mb-1 block" style={labelStyle}>
           Update Interval
         </label>
         <div className="flex flex-wrap gap-1">
@@ -238,11 +270,8 @@ export default function Sidebar({ settings, onChange }: Props) {
             <button
               key={iv}
               onClick={() => update({ interval: iv })}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                settings.interval === iv
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
+              className="px-2 py-1 text-xs rounded transition-colors"
+              style={btnBase(settings.interval === iv)}
             >
               {iv}s
             </button>
@@ -252,7 +281,7 @@ export default function Sidebar({ settings, onChange }: Props) {
 
       {/* Colors */}
       <div>
-        <label className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-2 block">
+        <label className="text-xs uppercase tracking-wider font-semibold mb-2 block" style={labelStyle}>
           Colors
         </label>
         <div className="space-y-2">
@@ -263,7 +292,7 @@ export default function Sidebar({ settings, onChange }: Props) {
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ bidColor: e.target.value })}
               className="w-8 h-8 rounded border-0 cursor-pointer bg-transparent"
             />
-            <span className="text-sm text-gray-300">Bid</span>
+            <span className="text-sm" style={{ color: theme.text }}>Bid</span>
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -272,7 +301,7 @@ export default function Sidebar({ settings, onChange }: Props) {
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ askColor: e.target.value })}
               className="w-8 h-8 rounded border-0 cursor-pointer bg-transparent"
             />
-            <span className="text-sm text-gray-300">Ask</span>
+            <span className="text-sm" style={{ color: theme.text }}>Ask</span>
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -281,7 +310,7 @@ export default function Sidebar({ settings, onChange }: Props) {
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ specialColor: e.target.value })}
               className="w-8 h-8 rounded border-0 cursor-pointer bg-transparent"
             />
-            <span className="text-sm text-gray-300">Special</span>
+            <span className="text-sm" style={{ color: theme.text }}>Special</span>
           </div>
         </div>
       </div>
@@ -293,14 +322,14 @@ export default function Sidebar({ settings, onChange }: Props) {
           id="showLabels"
           checked={settings.showOrderLabels}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ showOrderLabels: e.target.checked })}
-          className="w-4 h-4 rounded bg-gray-800 border-gray-600 accent-blue-500"
+          className="w-4 h-4 rounded accent-blue-500"
         />
-        <label htmlFor="showLabels" className="text-sm text-gray-300">
+        <label htmlFor="showLabels" className="text-sm" style={{ color: theme.text }}>
           Show Order Labels
         </label>
       </div>
 
-      <div className="mt-auto text-xs text-gray-600 border-t border-gray-800 pt-3">
+      <div className="mt-auto text-xs pt-3" style={{ color: theme.textMuted, borderTop: `1px solid ${theme.border}` }}>
         Data: Binance API via ccxt
       </div>
     </aside>
