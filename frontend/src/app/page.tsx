@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import SymbolPanel from '@/components/SymbolPanel';
 import { Settings, TabGroup, THEMES } from '@/types/orderbook';
+import { pollScreenshotRequest, clearScreenshotRequest } from '@/lib/api';
 
 const DEFAULT_TAB: TabGroup = {
   id: 'default',
@@ -27,6 +28,8 @@ const DEFAULT_SETTINGS: Settings = {
 export default function Home() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [screenshotSymbol, setScreenshotSymbol] = useState<string | null>(null);
+  const screenshotTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const toggleSidebar = useCallback(() => setSidebarCollapsed(prev => !prev), []);
 
@@ -59,6 +62,25 @@ export default function Home() {
     }
   }, [watchedSymbols]);
 
+  // Poll for screenshot requests from menubar
+  useEffect(() => {
+    const poll = async () => {
+      const req = await pollScreenshotRequest();
+      if (req && req.symbol) {
+        setScreenshotSymbol(req.symbol);
+        await clearScreenshotRequest();
+      }
+    };
+    screenshotTimerRef.current = setInterval(poll, 2000);
+    return () => {
+      if (screenshotTimerRef.current) clearInterval(screenshotTimerRef.current);
+    };
+  }, []);
+
+  const handleScreenshotDone = useCallback(() => {
+    setScreenshotSymbol(null);
+  }, []);
+
   const handleRemoveSymbol = (sym: string) => {
     const updatedGroups = settings.tabGroups.map((g: TabGroup) =>
       g.id === settings.activeTabId
@@ -87,6 +109,8 @@ export default function Home() {
               symbol={sym}
               settings={settings}
               onRemove={handleRemoveSymbol}
+              screenshotRequested={screenshotSymbol === sym}
+              onScreenshotDone={handleScreenshotDone}
             />
           ))
         )}

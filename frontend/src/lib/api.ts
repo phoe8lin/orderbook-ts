@@ -12,3 +12,19 @@ export async function fetchOrderBook(symbol: string, limit: number = 1000) {
   );
   return res.json();
 }
+
+export async function pollScreenshotRequest(): Promise<{ symbol: string; timestamp: string } | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/screenshot/poll`);
+    const data = await res.json();
+    return data.request || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearScreenshotRequest(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/screenshot/clear`, { method: 'POST' });
+  } catch {}
+}

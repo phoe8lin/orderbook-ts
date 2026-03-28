@@ -9,6 +9,7 @@ interface Props {
   settings: Settings;
   emas: Record<string, number>;
   showSummary?: boolean;
+  showLegend?: boolean;
 }
 
 function formatPrice(price: number): string {
@@ -17,7 +18,7 @@ function formatPrice(price: number): string {
   return price.toFixed(3);
 }
 
-export default function OrderBookChart({ data, depth, settings, emas, showSummary = true }: Props) {
+export default function OrderBookChart({ data, depth, settings, emas, showSummary = true, showLegend = true }: Props) {
   const theme = THEMES[settings.theme];
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -268,18 +269,20 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
     ctx.fillText(`${depth} Depth`, PAD.left, 16);
 
     // Legend
-    ctx.font = '11px sans-serif';
-    const legendX = W - PAD.right - 120;
-    ctx.fillStyle = settings.bidColor;
-    ctx.fillRect(legendX, 6, 12, 12);
-    ctx.fillStyle = theme.text;
-    ctx.textAlign = 'left';
-    ctx.fillText('Bids', legendX + 16, 16);
+    if (showLegend) {
+      ctx.font = '11px sans-serif';
+      const legendX = W - PAD.right - 120;
+      ctx.fillStyle = settings.bidColor;
+      ctx.fillRect(legendX, 6, 12, 12);
+      ctx.fillStyle = theme.text;
+      ctx.textAlign = 'left';
+      ctx.fillText('Bids', legendX + 16, 16);
 
-    ctx.fillStyle = settings.askColor;
-    ctx.fillRect(legendX + 60, 6, 12, 12);
-    ctx.fillStyle = theme.text;
-    ctx.fillText('Asks', legendX + 76, 16);
+      ctx.fillStyle = settings.askColor;
+      ctx.fillRect(legendX + 60, 6, 12, 12);
+      ctx.fillStyle = theme.text;
+      ctx.fillText('Asks', legendX + 76, 16);
+    }
 
     // Summary at bottom with colored status
     if (showSummary && data.summary) {

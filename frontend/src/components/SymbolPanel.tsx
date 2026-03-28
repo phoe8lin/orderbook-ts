@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import html2canvas from 'html2canvas';
 import OrderBookChart from '@/components/OrderBookChart';
 import LargeOrderBadge from '@/components/LargeOrderBadge';
 import { fetchOrderBook } from '@/lib/api';
@@ -11,14 +12,17 @@ interface Props {
   symbol: string;
   settings: Settings;
   onRemove: (symbol: string) => void;
+  screenshotRequested?: boolean;
+  onScreenshotDone?: () => void;
 }
 
-export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
+export default function SymbolPanel({ symbol, settings, onRemove, screenshotRequested, onScreenshotDone }: Props) {
   const [data, setData] = useState<OrderBookData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const theme = THEMES[settings.theme];
   const isDark = settings.theme === 'dark';
 
@@ -60,6 +64,48 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
     return { backgroundColor: theme.surfaceBg, borderColor: theme.border };
   };
 
+  // Screenshot: capture panel when requested
+  useEffect(() => {
+    if (!screenshotRequested || !panelRef.current) return;
+    const doScreenshot = async () => {
+      try {
+        const canvas = await html2canvas(panelRef.current!, {
+          backgroundColor: isDark ? '#0f1729' : '#ffffff',
+          scale: 2,
+          useCORS: true,
+        });
+        // Copy to clipboard
+        canvas.toBlob(async (blob) => {
+          if (blob) {
+            try {
+              await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': blob })
+              ]);
+            } catch (e) {
+              console.warn('Clipboard write failed, downloading instead', e);
+            }
+            // Also download
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const safeName = symbol.replace(/[/:]/g, '_');
+            const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            a.href = url;
+            a.download = `${safeName}_orderbook_${ts}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }
+        }, 'image/png');
+      } catch (e) {
+        console.error('Screenshot failed:', e);
+      } finally {
+        onScreenshotDone?.();
+      }
+    };
+    doScreenshot();
+  }, [screenshotRequested]);
+
   const getSummaryBadges = () => {
     if (!data?.summary) return null;
     const segments = data.summary.split(' | ');
@@ -91,6 +137,7 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
 
   return (
     <div
+      ref={panelRef}
       className="flex flex-col rounded-lg overflow-hidden flex-1 min-h-[250px] transition-colors duration-300"
       style={{ border: `1px solid ${getHeaderStyle().borderColor}`, backgroundColor: getHeaderStyle().backgroundColor }}
     >
@@ -172,6 +219,7 @@ export default function SymbolPanel({ symbol, settings, onRemove }: Props) {
                   settings={settings}
                   emas={data.emas_5m}
                   showSummary={false}
+                  showLegend={false}
                 />
               </div>
             </>

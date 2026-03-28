@@ -29,6 +29,9 @@ app = FastAPI(title="Order Flow API")
 _menubar_queue = None
 _menubar_process = None
 
+# ===== Screenshot Request =====
+_screenshot_request = None  # {'symbol': str, 'timestamp': str} or None
+
 
 def copy_to_clipboard(text):
     """使用 macOS pbcopy 将文本拷贝到剪贴板"""
@@ -84,6 +87,21 @@ def run_menubar(msg_queue):
                     copy_to_clipboard(pine_code)
                     rumps.notification("OrderFlow", "已拷贝 Pine Script", pine_code, sound=False)
 
+            def _screenshot(self, _):
+                if self._current_symbol:
+                    try:
+                        import urllib.request
+                        import urllib.parse
+                        encoded = urllib.parse.quote(self._current_symbol)
+                        req = urllib.request.Request(
+                            f"http://localhost:8888/api/screenshot/request?symbol={encoded}",
+                            method='POST'
+                        )
+                        urllib.request.urlopen(req, timeout=3)
+                        rumps.notification("OrderFlow", "截图请求已发送", f"正在截取 {self._current_symbol} 订单簿...", sound=False)
+                    except Exception as e:
+                        rumps.notification("OrderFlow", "截图失败", str(e), sound=False)
+
             def update_order_info(self, symbol, order_info):
                 try:
                     if not order_info:
@@ -104,6 +122,7 @@ def run_menubar(msg_queue):
                     self.menu.add(rumps.MenuItem(f"位置: {price_diff_text}"))
                     self.menu.add(rumps.MenuItem(f"大单倍数: {order_info['ratio']:.1f}x"))
                     self.menu.add(rumps.MenuItem(None))
+                    self.menu.add(rumps.MenuItem("📸 截图订单簿", callback=self._screenshot))
                     copy_menu = rumps.MenuItem("📋 拷贝")
                     copy_menu.add(rumps.MenuItem("拷贝展示词", callback=self._copy_display))
                     copy_menu.add(rumps.MenuItem(f"拷贝价格 ({order_info['price']})", callback=self._copy_price))
@@ -463,6 +482,38 @@ def api_orderbook(symbol: str = Query(default="BTC/USDT"), limit: int = Query(de
     except Exception as e:
         logger.error(f"Error in orderbook API: {e}")
         return {"error": str(e)}
+
+
+@app.get("/api/screenshot/poll")
+def screenshot_poll():
+    """前端轮询是否有截图请求"""
+    global _screenshot_request
+    if _screenshot_request:
+        req = _screenshot_request
+        return {"request": req}
+    return {"request": None}
+
+
+@app.post("/api/screenshot/clear")
+def screenshot_clear():
+    """前端截图完成后清除请求"""
+    global _screenshot_request
+    _screenshot_request = None
+    return {"status": "cleared"}
+
+
+@app.post("/api/screenshot/request")
+def screenshot_request_api(symbol: str = Query(default="")):
+    """请求截图（menubar 调用）"""
+    global _screenshot_request
+    _screenshot_request = {
+        'symbol': symbol,
+        'timestamp': datetime.now(timezone.utc).astimezone(
+            timezone(timedelta(hours=8))
+        ).strftime("%Y%m%d_%H%M%S")
+    }
+    logger.info(f"Screenshot requested for {symbol}")
+    return {"status": "requested", "symbol": symbol}
 
 
 @app.get("/api/health")
