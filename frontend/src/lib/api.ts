@@ -6,10 +6,20 @@ export async function fetchSymbols(): Promise<string[]> {
   return data.symbols || [];
 }
 
-export async function fetchOrderBook(symbol: string, limit: number = 1000) {
-  const res = await fetch(
-    `${API_BASE}/api/orderbook?symbol=${encodeURIComponent(symbol)}&limit=${limit}`
-  );
+export async function fetchOrderBook(
+  symbol: string,
+  limit: number = 1000,
+  opts: { mockAbsorption?: boolean; absorptionWindow?: number } = {}
+) {
+  const params = new URLSearchParams({
+    symbol,
+    limit: String(limit),
+  });
+  if (opts.mockAbsorption) params.set('mock_absorption', '1');
+  if (opts.absorptionWindow && opts.absorptionWindow > 0) {
+    params.set('absorption_window', String(opts.absorptionWindow));
+  }
+  const res = await fetch(`${API_BASE}/api/orderbook?${params.toString()}`);
   return res.json();
 }
 

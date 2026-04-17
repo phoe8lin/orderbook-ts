@@ -34,13 +34,23 @@
 - ✅ Top5 大单标注 + 特殊大单高亮
 - ✅ macOS 菜单栏实时大单通知
 - ✅ 可调刷新间隔（1s~60s）
+- ✅ 做市商对称挂单识别与过滤（灰点标记 / 直接移除 两种模式）
+- ✅ 大额挂单吸收检测（紫色幽灵环，时间窗口可选 15s~10min）
 
 ### 后端 API 接口
 | 端点 | 返回内容 |
 |---|---|
 | `GET /api/symbols` | 所有交易对列表 |
-| `GET /api/orderbook?symbol=BTC/USDT&limit=1000` | 订单簿 + EMA + RSI + 大单 + summary |
+| `GET /api/orderbook` | 订单簿 + EMA + RSI + 大单 + MM过滤 + 吸收事件 + summary |
 | `GET /api/health` | 健康检查 |
+
+**`/api/orderbook` 查询参数：**
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `symbol` | str | BTC/USDT | 交易对 |
+| `limit` | int | 1000 | 订单簿档数 |
+| `mock_absorption` | 0/1 | 0 | 返回伪造的吸收事件（调试用） |
+| `absorption_window` | int | 45 | 吸收事件保留秒数，范围 5~600 |
 
 ### 后端返回数据结构 (`/api/orderbook`)
 ```json
@@ -52,14 +62,22 @@
   "asks": [{"price": 66550.03, "amount": 0.8}, ...],
   "top_bids": [{"price": 66500.00, "amount": 5.5, "rank": 1}, ...],
   "top_asks": [{"price": 66600.00, "amount": 4.2, "rank": 1}, ...],
+  "top_bids_filtered": [...],        // 剔除 MM 后的 Top5
+  "top_asks_filtered": [...],
+  "mm_bid_prices": [66520.0, ...],   // MM 对称挂单识别到的 bid 价格
+  "mm_ask_prices": [66580.0, ...],
   "bid_top1_special": true,
   "ask_top1_special": false,
+  "bid_top1_special_filtered": true,
+  "ask_top1_special_filtered": false,
   "large_order": {"side": "bid", "price": 66500.00, "amount": 5.5, "price_diff": 0.08, "ratio": 1.2},
-  "emas_5m": {"5m EMA20": 66540.0, "5m EMA50": 66520.0, ...},
-  "emas_1h": {"1h EMA20": 66600.0, "1h EMA50": 66580.0, ...},
-  "analysis": {"5m": {"close": 66550.0, "rsi": 45.2, "ema20": 66540.0, ...}, "1h": {...}},
-  "trends": {"5m": {"price_above_ema20": true, ...}, "1h": {...}},
-  "summary": "5m: Bullish (Strength: 4/6) | RSI: Neutral (45.2) | 1h: Bearish (Strength: 1/6) | RSI: Oversold (28.6)"
+  "large_order_filtered": {...},     // 剔除 MM 后重算的大单
+  "absorption_events": [              // 吸收事件，最多 10 条，按时间倒序
+    {"ts": 1712345678.1, "side": "bid", "price": 66500.0, "amount": 2.3, "trade_volume": 1.8, "current_price": 66550.0}
+  ],
+  "emas_5m": {...}, "emas_1h": {...},
+  "analysis": {...}, "trends": {...},
+  "summary": "5m: Bullish (4/6) | RSI: Neutral (45.2) | 1h: Bearish (1/6) | RSI: Oversold (28.6)"
 }
 ```
 
@@ -67,17 +85,38 @@
 ```typescript
 interface Settings {
   symbol: string;
-  interval: number;         // 轮询间隔(秒)
-  bidColor: string;         // 买单颜色
-  askColor: string;         // 卖单颜色
-  specialColor: string;     // 特殊大单颜色
-  showOrderLabels: boolean; // 显示标注
-  depths: number[];         // [1000, 100]
-  tabGroups: TabGroup[];    // Tab 组列表
-  activeTabId: string;      // 当前 Tab
-  theme: 'dark' | 'light';  // 主题
+  interval: number;              // 轮询间隔(秒)
+  bidColor: string;              // 买单颜色
+  askColor: string;              // 卖单颜色
+  specialColor: string;          // 特殊大单颜色
+  showOrderLabels: boolean;      // 显示标注
+  filterMM: boolean;             // 展开侧栏：MM 灰点标记 + Top5 使用过滤版本
+  hideMM: boolean;               // 收起侧栏 Filter 按钮：从图表中移除 MM 价档
+  showAbsorption: boolean;       // 是否显示吸收事件
+  absorptionWindow: number;      // 吸收事件保留/淡出时长（秒）
+  mockAbsorption: boolean;       // 调试：返回伪造吸收事件
+  depths: number[];              // [1000, 100]
+  tabGroups: TabGroup[];
+  activeTabId: string;
+  theme: 'dark' | 'light';
 }
 ```
+
+### MM 过滤算法（`detect_mm_symmetric_pairs`）
+- 在 mid ±`MM_RANGE_PCT_DEFAULT`(0.3%) 范围内
+- 每侧取按数量排名 Top-`MM_TOP_CAND_N`(30) 的档作为候选
+- 对每个 bid 候选寻找对称 ask：距离差 ≤ `MM_DIST_TOL_DEFAULT`(15%)、数量比 ≥ 1 - `MM_AMT_TOL_DEFAULT`(25%)
+- 命中即将双方价格加入 `mm_bid_prices` / `mm_ask_prices`
+
+### 吸收检测算法（`update_absorption_events`）
+- 跟踪目标：每侧 Top5 大单（按数量排名）
+- 模块级状态：`_ob_snapshot_history[symbol]`（最近 20 次快照）、`_absorption_events[symbol]`（事件环形缓冲）
+- 吸收判定（每次请求）：
+  1. 拉取上次快照至今的成交（`exchange.fetch_trades`）
+  2. 对每个上次 Top 大单，若本次缩量比 ≥ `_ABSORPTION_SHRINK_MIN`(0.6)
+  3. 在该价格 ±5 bps 内，对应方向的成交量 ≥ 缩量 × `_ABSORPTION_TRADE_COVER`(0.5)
+  4. 记录事件（`ts/side/price/amount/trade_volume/current_price`）
+- 返回：过滤掉超过 `absorption_window` 秒的事件，按 ts 倒序，最多 10 条
 
 ---
 

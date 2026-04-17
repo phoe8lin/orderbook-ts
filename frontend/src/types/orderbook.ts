@@ -35,6 +35,15 @@ export interface AnalysisResult {
   ema200: number;
 }
 
+export interface AbsorptionEvent {
+  ts: number;              // epoch seconds
+  side: 'bid' | 'ask';
+  price: number;
+  amount: number;          // 被吸收的挂单缩量
+  trade_volume: number;    // 实际成交量（邻域）
+  current_price: number;
+}
+
 export interface OrderBookData {
   symbol: string;
   timestamp: string;
@@ -43,9 +52,17 @@ export interface OrderBookData {
   asks: OrderLevel[];
   top_bids: TopOrder[];
   top_asks: TopOrder[];
+  top_bids_filtered?: TopOrder[];
+  top_asks_filtered?: TopOrder[];
+  mm_bid_prices?: number[];
+  mm_ask_prices?: number[];
   bid_top1_special: boolean;
   ask_top1_special: boolean;
+  bid_top1_special_filtered?: boolean;
+  ask_top1_special_filtered?: boolean;
   large_order: LargeOrder | null;
+  large_order_filtered?: LargeOrder | null;
+  absorption_events?: AbsorptionEvent[];
   emas_5m: Record<string, number>;
   emas_1h: Record<string, number>;
   analysis: Record<string, AnalysisResult>;
@@ -139,6 +156,11 @@ export interface Settings {
   askColor: string;
   specialColor: string;
   showOrderLabels: boolean;
+  filterMM: boolean;              // 展开侧栏复选框：标记 MM（灰点 + filtered Top5 + 徽章），不移除图形
+  hideMM: boolean;                // 收起侧栏按钮：从图表中真正移除 MM 价档渲染
+  showAbsorption: boolean;        // 是否显示吸收事件标记
+  absorptionWindow: number;       // 吸收事件保留 & 淡出时长（秒）
+  mockAbsorption: boolean;        // 视觉验证用：请求后端返回 mock 事件
   depths: number[];
   tabGroups: TabGroup[];
   activeTabId: string;

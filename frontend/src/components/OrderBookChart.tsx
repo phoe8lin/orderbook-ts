@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useMemo } from 'react';
-import { OrderBookData, TopOrder, Settings, THEMES } from '@/types/orderbook';
+import { OrderBookData, TopOrder, Settings, THEMES, AbsorptionEvent } from '@/types/orderbook';
 
 interface Props {
   data: OrderBookData;
@@ -25,8 +25,16 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
   const animFrameRef = useRef<number>(0);
 
   const chartData = useMemo(() => {
-    const bids = data.bids.slice(0, depth);
-    const asks = data.asks.slice(0, depth);
+    // MM price sets
+    const mmBidSet = new Set<number>(data.mm_bid_prices || []);
+    const mmAskSet = new Set<number>(data.mm_ask_prices || []);
+
+    // hideMM：真正从渲染中移除 MM 价档
+    const rawBids = data.bids.slice(0, depth);
+    const rawAsks = data.asks.slice(0, depth);
+    const bids = settings.hideMM ? rawBids.filter(b => !mmBidSet.has(b.price)) : rawBids;
+    const asks = settings.hideMM ? rawAsks.filter(a => !mmAskSet.has(a.price)) : rawAsks;
+
     if (!bids.length || !asks.length) return null;
 
     const bidPrices = bids.map(b => b.price);
@@ -41,12 +49,30 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
     const maxAmount = Math.max(...allAmounts);
     const currentPrice = data.current_price;
 
-    // Top orders within this depth
-    const topBidsInDepth = data.top_bids.filter(
+    // Top5 和徽章在 filterMM 或 hideMM 任一开启时使用过滤版本
+    const useFiltered = settings.filterMM || settings.hideMM;
+    const effTopBids = useFiltered && data.top_bids_filtered ? data.top_bids_filtered : data.top_bids;
+    const effTopAsks = useFiltered && data.top_asks_filtered ? data.top_asks_filtered : data.top_asks;
+    const effBidSpecial = useFiltered
+      ? (data.bid_top1_special_filtered ?? data.bid_top1_special)
+      : data.bid_top1_special;
+    const effAskSpecial = useFiltered
+      ? (data.ask_top1_special_filtered ?? data.ask_top1_special)
+      : data.ask_top1_special;
+
+    const topBidsInDepth = effTopBids.filter(
       t => t.price >= bids[bids.length - 1]?.price
     );
-    const topAsksInDepth = data.top_asks.filter(
+    const topAsksInDepth = effTopAsks.filter(
       t => t.price <= asks[asks.length - 1]?.price
+    );
+
+    // 灰点/配对仅在 filterMM 开启且 hideMM 未开启时绘制（hideMM 下 MM 已被移除，没什么可标记）
+    const showDots = settings.filterMM && !settings.hideMM;
+
+    // Absorption events within price range
+    const absorption: AbsorptionEvent[] = (data.absorption_events || []).filter(
+      e => e.price >= minPrice && e.price <= maxPrice
     );
 
     return {
@@ -54,8 +80,12 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
       bidPrices, bidAmounts, askPrices, askAmounts,
       minPrice, maxPrice, maxAmount, currentPrice,
       topBidsInDepth, topAsksInDepth,
+      mmBidSet, mmAskSet,
+      showDots,
+      absorption,
+      effBidSpecial, effAskSpecial,
     };
-  }, [data, depth]);
+  }, [data, depth, settings.filterMM, settings.hideMM]);
 
   useEffect(() => {
     if (!chartData || !canvasRef.current) return;
@@ -78,7 +108,9 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
 
     const { bidPrices, bidAmounts, askPrices, askAmounts,
             minPrice, maxPrice, maxAmount, currentPrice,
-            topBidsInDepth, topAsksInDepth } = chartData;
+            topBidsInDepth, topAsksInDepth,
+            mmBidSet, mmAskSet, showDots, absorption,
+            effBidSpecial, effAskSpecial } = chartData;
 
     const priceRange = maxPrice - minPrice || 1;
     const amountRange = maxAmount * 1.1;
@@ -239,8 +271,106 @@ export default function OrderBookChart({ data, depth, settings, emas, showSummar
         });
       };
 
-      drawAnnotation(topBidsInDepth, 'bid', data.bid_top1_special, settings.bidColor);
-      drawAnnotation(topAsksInDepth, 'ask', data.ask_top1_special, settings.askColor);
+      drawAnnotation(topBidsInDepth, 'bid', effBidSpecial, settings.bidColor);
+      drawAnnotation(topAsksInDepth, 'ask', effAskSpecial, settings.askColor);
+    }
+
+    // MM 灰点标记：仅在 filterMM 开启且 hideMM 未开启时绘制
+    if (showDots && (mmBidSet.size > 0 || mmAskSet.size > 0)) {
+      ctx.save();
+      const dotColor = '#9ca3af';
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = dotColor;
+      const drawMM = (list: { price: number; amount: number }[], set: Set<number>) => {
+        for (const lvl of list) {
+          if (!set.has(lvl.price)) continue;
+          const x = toX(lvl.price);
+          const y = toY(lvl.amount);
+          ctx.beginPath();
+          ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      };
+      drawMM(chartData.bids, mmBidSet);
+      drawMM(chartData.asks, mmAskSet);
+
+      ctx.globalAlpha = 0.85;
+      ctx.font = '10px monospace';
+      ctx.fillStyle = dotColor;
+      ctx.textAlign = 'left';
+      ctx.fillText(`MM ${mmBidSet.size}+${mmAskSet.size}`, PAD.left + 90, 16);
+      ctx.restore();
+    }
+
+    // hideMM 下在标题处给出提示
+    if (settings.hideMM && (mmBidSet.size > 0 || mmAskSet.size > 0)) {
+      ctx.save();
+      ctx.font = '10px monospace';
+      ctx.fillStyle = '#60a5fa';
+      ctx.textAlign = 'left';
+      ctx.fillText(`MM hidden ${mmBidSet.size}+${mmAskSet.size}`, PAD.left + 90, 16);
+      ctx.restore();
+    }
+
+    // Absorption ghost markers: recent large-order absorptions
+    if (settings.showAbsorption && absorption.length > 0) {
+      const now = Date.now() / 1000;
+      const window = Math.max(5, settings.absorptionWindow || 30);
+      ctx.save();
+      absorption.forEach((ev) => {
+        const age = Math.max(0, now - ev.ts);
+        const fade = Math.max(0, 1 - age / window);
+        if (fade <= 0) return;
+
+        const x = toX(ev.price);
+        // y 位置放在图顶附近，避免被价格/数量曲线压住；用 20% plotH 深度
+        const y = PAD.top + plotH * 0.25;
+        const color = ev.side === 'bid' ? '#4ade80' : '#f87171';
+        // Purple base to signify absorption (distinct from bid/ask color)
+        const ringColor = '#c084fc';
+
+        // Outer pulsing ring (size ~ sqrt(amount) scaled)
+        const radius = 6 + Math.min(14, Math.sqrt(ev.amount) * 4);
+        ctx.globalAlpha = 0.15 * fade;
+        ctx.fillStyle = ringColor;
+        ctx.beginPath();
+        ctx.arc(x, y, radius * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.globalAlpha = 0.8 * fade;
+        ctx.strokeStyle = ringColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Inner dot colored by side (absorbed bid=green eaten by sells, ask=red eaten by buys)
+        ctx.globalAlpha = 0.9 * fade;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Vertical drop-down faint line to x-axis
+        ctx.globalAlpha = 0.25 * fade;
+        ctx.strokeStyle = ringColor;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(x, y + radius);
+        ctx.lineTo(x, PAD.top + plotH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Label
+        ctx.globalAlpha = fade;
+        ctx.font = 'bold 9px monospace';
+        ctx.fillStyle = ringColor;
+        ctx.textAlign = 'center';
+        const ageTxt = age < 60 ? `${Math.round(age)}s` : `${Math.round(age / 60)}m`;
+        ctx.fillText(`⊙ ${ev.amount.toFixed(2)} · ${ageTxt}`, x, y - radius - 4);
+      });
+      ctx.restore();
     }
 
     // Y axis labels (amount)

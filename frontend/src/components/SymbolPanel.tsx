@@ -28,7 +28,10 @@ export default function SymbolPanel({ symbol, settings, onRemove, screenshotRequ
 
   const loadData = useCallback(async () => {
     try {
-      const result = await fetchOrderBook(symbol, 1000);
+      const result = await fetchOrderBook(symbol, 1000, {
+        mockAbsorption: settings.mockAbsorption && settings.showAbsorption,
+        absorptionWindow: settings.absorptionWindow,
+      });
       if (result.error) {
         setError(result.error);
       } else {
@@ -40,7 +43,7 @@ export default function SymbolPanel({ symbol, settings, onRemove, screenshotRequ
     } finally {
       setLoading(false);
     }
-  }, [symbol]);
+  }, [symbol, settings.mockAbsorption, settings.showAbsorption, settings.absorptionWindow]);
 
   useEffect(() => {
     setLoading(true);
@@ -55,9 +58,14 @@ export default function SymbolPanel({ symbol, settings, onRemove, screenshotRequ
     };
   }, [loadData, settings.interval]);
 
+  const mmActive = settings.filterMM || settings.hideMM;
+  const effectiveLargeOrder = mmActive
+    ? (data?.large_order_filtered ?? data?.large_order ?? null)
+    : (data?.large_order ?? null);
+
   const getHeaderStyle = () => {
-    if (data?.large_order) {
-      return data.large_order.side === 'bid'
+    if (effectiveLargeOrder) {
+      return effectiveLargeOrder.side === 'bid'
         ? { backgroundColor: isDark ? 'rgba(6,78,59,0.3)' : 'rgba(220,252,231,0.8)', borderColor: isDark ? '#065f46' : '#86efac' }
         : { backgroundColor: isDark ? 'rgba(127,29,29,0.3)' : 'rgba(254,226,226,0.8)', borderColor: isDark ? '#991b1b' : '#fca5a5' };
     }
@@ -153,18 +161,29 @@ export default function SymbolPanel({ symbol, settings, onRemove, screenshotRequ
               {data.current_price < 1 ? data.current_price.toFixed(4) : data.current_price.toFixed(2)}
             </span>
           )}
-          {data?.large_order && (
+          {effectiveLargeOrder && (
             <span className="text-xs px-1.5 py-0.5 rounded" style={{
-              backgroundColor: data.large_order.side === 'bid'
+              backgroundColor: effectiveLargeOrder.side === 'bid'
                 ? (isDark ? '#065f46' : '#dcfce7')
                 : (isDark ? '#991b1b' : '#fee2e2'),
-              color: data.large_order.side === 'bid'
+              color: effectiveLargeOrder.side === 'bid'
                 ? (isDark ? '#a7f3d0' : '#166534')
                 : (isDark ? '#fecaca' : '#991b1b'),
-            }}>
-              {data.large_order.side === 'bid' ? '📈' : '📉'}{' '}
-              {data.large_order.ratio.toFixed(1)}x @{' '}
-              {data.large_order.price < 1 ? data.large_order.price.toFixed(4) : data.large_order.price.toFixed(2)}
+            }}
+              title={mmActive ? '已过滤做市商对称挂单后的大单' : undefined}
+            >
+              {effectiveLargeOrder.side === 'bid' ? '📈' : '📉'}{' '}
+              {effectiveLargeOrder.ratio.toFixed(1)}x @{' '}
+              {effectiveLargeOrder.price < 1 ? effectiveLargeOrder.price.toFixed(4) : effectiveLargeOrder.price.toFixed(2)}
+              {mmActive && <span className="ml-1 opacity-70">·F</span>}
+            </span>
+          )}
+          {settings.showAbsorption && data?.absorption_events && data.absorption_events.length > 0 && (
+            <span className="text-xs px-1.5 py-0.5 rounded" style={{
+              backgroundColor: isDark ? 'rgba(168,85,247,0.2)' : 'rgba(243,232,255,0.9)',
+              color: isDark ? '#c084fc' : '#7e22ce',
+            }} title="最近被吸收的大额挂单事件数（30 秒窗口）">
+              ⊙ {data.absorption_events.length} 吸收
             </span>
           )}
           {data?.summary && getSummaryBadges()}

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Settings, TabGroup, THEMES } from '@/types/orderbook';
 import { fetchSymbols } from '@/lib/api';
-import { TrendingUp, Plus, Save, Trash2, Sun, Moon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { TrendingUp, Plus, Save, Trash2, Sun, Moon, PanelLeftClose, PanelLeftOpen, Filter } from 'lucide-react';
 
 interface Props {
   settings: Settings;
@@ -128,6 +128,18 @@ export default function Sidebar({ settings, onChange, collapsed, onToggleCollaps
           title={settings.theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
         >
           {settings.theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
+        <button
+          onClick={() => update({ hideMM: !settings.hideMM })}
+          className="p-1.5 rounded-lg transition-colors"
+          style={{
+            backgroundColor: settings.hideMM ? '#2563eb' : theme.inputBg,
+            color: settings.hideMM ? '#fff' : theme.textSecondary,
+            border: `1px solid ${settings.hideMM ? '#2563eb' : theme.inputBorder}`,
+          }}
+          title={settings.hideMM ? '恢复显示做市商对称单' : '在图表中直接消除做市商对称单'}
+        >
+          <Filter size={14} />
         </button>
       </aside>
     );
@@ -384,18 +396,81 @@ export default function Sidebar({ settings, onChange, collapsed, onToggleCollaps
         </div>
       </div>
 
-      {/* Show labels */}
-      <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          id="showLabels"
-          checked={settings.showOrderLabels}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ showOrderLabels: e.target.checked })}
-          className="w-4 h-4 rounded accent-blue-500"
-        />
-        <label htmlFor="showLabels" className="text-sm" style={{ color: theme.text }}>
-          Show Order Labels
-        </label>
+      {/* Toggles */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="showLabels"
+            checked={settings.showOrderLabels}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ showOrderLabels: e.target.checked })}
+            className="w-4 h-4 rounded accent-blue-500"
+          />
+          <label htmlFor="showLabels" className="text-sm" style={{ color: theme.text }}>
+            Show Order Labels
+          </label>
+        </div>
+
+        <div className="flex items-center gap-2" title="剔除做市商/算法在中间价附近的近似对称挂单对，还原真实方向性大单">
+          <input
+            type="checkbox"
+            id="filterMM"
+            checked={settings.filterMM}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ filterMM: e.target.checked })}
+            className="w-4 h-4 rounded accent-blue-500"
+          />
+          <label htmlFor="filterMM" className="text-sm" style={{ color: theme.text }}>
+            过滤做市商对称单
+          </label>
+        </div>
+
+        <div className="flex items-center gap-2" title="显示最近大额挂单被市价单吃掉的位置（幽灵标记，按时间窗口淡出）">
+          <input
+            type="checkbox"
+            id="showAbsorption"
+            checked={settings.showAbsorption}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ showAbsorption: e.target.checked })}
+            className="w-4 h-4 rounded accent-blue-500"
+          />
+          <label htmlFor="showAbsorption" className="text-sm" style={{ color: theme.text }}>
+            显示吸收事件
+          </label>
+        </div>
+
+        <div className="flex items-center gap-2 pl-6" title="吸收事件在图上保留和淡出的时长">
+          <label htmlFor="absorptionWindow" className="text-xs" style={{ color: theme.textSecondary }}>
+            时间窗口
+          </label>
+          <select
+            id="absorptionWindow"
+            value={settings.absorptionWindow}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => update({ absorptionWindow: Number(e.target.value) })}
+            disabled={!settings.showAbsorption}
+            className="text-xs px-1.5 py-0.5 rounded border"
+            style={{ backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.inputBorder }}
+          >
+            <option value={15}>15s</option>
+            <option value={30}>30s</option>
+            <option value={60}>1 min</option>
+            <option value={120}>2 min</option>
+            <option value={300}>5 min</option>
+            <option value={600}>10 min</option>
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2" title="让后端返回伪造的吸收事件用于视觉效果验证（开发调试用）">
+          <input
+            type="checkbox"
+            id="mockAbsorption"
+            checked={settings.mockAbsorption}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ mockAbsorption: e.target.checked })}
+            className="w-4 h-4 rounded accent-orange-500"
+            disabled={!settings.showAbsorption}
+          />
+          <label htmlFor="mockAbsorption" className="text-xs" style={{ color: theme.textSecondary }}>
+            Mock 吸收事件（调试）
+          </label>
+        </div>
       </div>
 
       <div className="mt-auto text-xs pt-3" style={{ color: theme.textMuted, borderTop: `1px solid ${theme.border}` }}>

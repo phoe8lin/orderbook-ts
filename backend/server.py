@@ -4,7 +4,7 @@
 运行: /opt/anaconda3/envs/trade/bin/python -m uvicorn server:app --host 0.0.0.0 --port 8888 --reload
 """
 import ccxt
-from collections import defaultdict
+from collections import defaultdict, deque
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone, timedelta
@@ -13,6 +13,7 @@ import logging
 import multiprocessing
 import queue
 import subprocess
+import random
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -280,6 +281,211 @@ def fetch_and_aggregate_order_book(symbol, limit=2000):
         return [], []
 
 
+# ===== MM 对称挂单检测参数（默认值，可被 API 覆盖）=====
+MM_RANGE_PCT_DEFAULT = 0.3       # 仅在中间价 ±0.3% 内启用
+MM_DIST_TOL_DEFAULT = 0.15       # 距离对称容差 15%
+MM_AMT_TOL_DEFAULT = 0.25        # 数量对称容差 25%
+MM_TOP_CAND_N = 30               # 仅在每侧 Top-N 大档中寻找对称对（排名靠前的才有可能污染 Top5）
+
+# ===== 吸收检测状态 =====
+_ob_snapshot_history = {}   # symbol -> deque of {ts, top_bid_map, top_ask_map, mid}
+_absorption_events = {}     # symbol -> deque of events
+_ABSORPTION_HISTORY_MAX = 20
+_ABSORPTION_EVENT_TTL_DEFAULT = 45  # 秒（默认）
+_ABSORPTION_EVENT_TTL_MAX = 600     # 最长保留时间上限
+_ABSORPTION_SHRINK_MIN = 0.6  # 大单缩量 60% 以上才算候选
+_ABSORPTION_TRADE_COVER = 0.5  # 成交量需覆盖缩量的 50% 以上才算"吸收"而非"撤单"
+
+
+def detect_mm_symmetric_pairs(bids, asks, mid,
+                              range_pct=MM_RANGE_PCT_DEFAULT,
+                              dist_tol=MM_DIST_TOL_DEFAULT,
+                              amt_tol=MM_AMT_TOL_DEFAULT,
+                              top_n=MM_TOP_CAND_N):
+    """识别做市商/算法的近似对称挂单对（聚焦在能进入 Top 排名的大档）。
+
+    策略：
+    1. 取 mid 附近 range_pct% 内每侧"按数量排名 Top-N"的大档作为候选
+       （深度中绝大多数小档不会进 Top5，不必标记）
+    2. 对每个 bid 候选，在 ask 候选中找一个距离对称、数量对称的最佳匹配
+    3. 匹配时优先选距离差绝对值最小的 ask（贪心但有序）
+    返回 (mm_bid_prices, mm_ask_prices) 两个 set。
+    """
+    mm_bids, mm_asks = set(), set()
+    if not bids or not asks or mid <= 0:
+        return mm_bids, mm_asks
+
+    max_dist = mid * range_pct / 100.0
+    if max_dist <= 0:
+        return mm_bids, mm_asks
+
+    # 范围内所有档 → 按数量排序 → 取 Top-N 作为 MM 候选
+    in_range_bids = [(p, a) for p, a in bids if 0 < (mid - p) <= max_dist]
+    in_range_asks = [(p, a) for p, a in asks if 0 < (p - mid) <= max_dist]
+    cand_bids = sorted(in_range_bids, key=lambda x: x[1], reverse=True)[:top_n]
+    cand_asks = sorted(in_range_asks, key=lambda x: x[1], reverse=True)[:top_n]
+
+    used_asks = set()
+    # 按数量由大到小处理 bid 候选（优先处理量大的）
+    for bp, ba in cand_bids:
+        db = mid - bp
+        if db <= 0:
+            continue
+        ranked = sorted(
+            [(ap, aa) for ap, aa in cand_asks if ap not in used_asks],
+            key=lambda x: abs((x[0] - mid) - db)
+        )
+        for ap, aa in ranked:
+            da = ap - mid
+            if da <= 0:
+                continue
+            if abs(db - da) / db > dist_tol:
+                continue
+            ratio = min(ba, aa) / max(ba, aa) if max(ba, aa) > 0 else 0
+            if ratio < 1 - amt_tol:
+                continue
+            mm_bids.add(bp)
+            mm_asks.add(ap)
+            used_asks.add(ap)
+            break
+
+    return mm_bids, mm_asks
+
+
+def top_orders_excluding(bids, asks, exclude_bid_prices, exclude_ask_prices, top_n=5):
+    """剔除指定价格后的 TopN。"""
+    fb = [(p, a) for p, a in bids if p not in exclude_bid_prices]
+    fa = [(p, a) for p, a in asks if p not in exclude_ask_prices]
+    top_bids = sorted(fb, key=lambda x: x[1], reverse=True)[:top_n]
+    top_asks = sorted(fa, key=lambda x: x[1], reverse=True)[:top_n]
+    return top_bids, top_asks
+
+
+def analyze_large_orders_from_tops(top_bids, top_asks, current_price):
+    """使用传入的 top_bids/top_asks 做大单分析（与旧逻辑一致，但可选择输入源）。"""
+    try:
+        if not top_bids or not top_asks:
+            return None
+        bid_top2to5_sum = sum(amount for _, amount in top_bids[1:5])
+        ask_top2to5_sum = sum(amount for _, amount in top_asks[1:5])
+        if top_bids[0][1] > top_asks[0][1]:
+            return {
+                'side': 'bid',
+                'price': top_bids[0][0],
+                'amount': top_bids[0][1],
+                'price_diff': ((current_price - top_bids[0][0]) / current_price) * 100,
+                'ratio': top_bids[0][1] / ask_top2to5_sum if ask_top2to5_sum > 0 else 0
+            }
+        else:
+            return {
+                'side': 'ask',
+                'price': top_asks[0][0],
+                'amount': top_asks[0][1],
+                'price_diff': ((top_asks[0][0] - current_price) / current_price) * 100,
+                'ratio': top_asks[0][1] / bid_top2to5_sum if bid_top2to5_sum > 0 else 0
+            }
+    except Exception as e:
+        logger.error(f"Error analyzing large orders: {e}")
+        return None
+
+
+def update_absorption_events(symbol, top_bids, top_asks, mid, ttl=_ABSORPTION_EVENT_TTL_DEFAULT):
+    """基于快照差分 + 最近成交检测吸收事件。
+
+    逻辑：
+    - 上一次快照中的 top 大单若本次消失/缩量 >= 60%
+    - 且在该价格邻域内出现了对应方向的成交（sell 吃 bid / buy 吃 ask）
+    - 成交量 >= 缩量的 50%，则判定为"吸收"；否则视为"撤单"不记录。
+    返回最近 30 秒内的事件列表（按时间倒序）。
+    """
+    now = datetime.now(timezone.utc).timestamp()
+    hist = _ob_snapshot_history.setdefault(symbol, deque(maxlen=_ABSORPTION_HISTORY_MAX))
+    events = _absorption_events.setdefault(symbol, deque(maxlen=_ABSORPTION_HISTORY_MAX))
+
+    cur_bid_map = {p: a for p, a in top_bids[:10]}
+    cur_ask_map = {p: a for p, a in top_asks[:10]}
+
+    if hist:
+        prev = hist[-1]
+        dt = now - prev['ts']
+        if 0 < dt <= 30:
+            since_ms = int(prev['ts'] * 1000)
+            trades = []
+            try:
+                trades = exchange.fetch_trades(symbol, since=since_ms, limit=500) or []
+            except Exception as e:
+                logger.debug(f"fetch_trades failed: {e}")
+
+            buy_vol = defaultdict(float)   # 市价买 → 吃 ask
+            sell_vol = defaultdict(float)  # 市价卖 → 吃 bid
+            for t in trades:
+                p = t.get('price'); a = t.get('amount'); s = t.get('side')
+                if p is None or a is None: continue
+                if s == 'buy': buy_vol[p] += a
+                elif s == 'sell': sell_vol[p] += a
+
+            tick_tol = max(mid * 0.0005, 0)  # ~5 bps 邻域
+
+            def near_sum(vol_map, target):
+                return sum(v for tp, v in vol_map.items() if abs(tp - target) <= tick_tol)
+
+            for p, prev_amt in prev['top_bid_map'].items():
+                cur_amt = cur_bid_map.get(p, 0)
+                shrink = prev_amt - cur_amt
+                if prev_amt > 0 and shrink > 0 and shrink / prev_amt >= _ABSORPTION_SHRINK_MIN:
+                    ns = near_sum(sell_vol, p)
+                    if ns >= shrink * _ABSORPTION_TRADE_COVER:
+                        events.append({
+                            'ts': now, 'side': 'bid', 'price': p,
+                            'amount': shrink, 'trade_volume': ns,
+                            'current_price': mid,
+                        })
+
+            for p, prev_amt in prev['top_ask_map'].items():
+                cur_amt = cur_ask_map.get(p, 0)
+                shrink = prev_amt - cur_amt
+                if prev_amt > 0 and shrink > 0 and shrink / prev_amt >= _ABSORPTION_SHRINK_MIN:
+                    nb = near_sum(buy_vol, p)
+                    if nb >= shrink * _ABSORPTION_TRADE_COVER:
+                        events.append({
+                            'ts': now, 'side': 'ask', 'price': p,
+                            'amount': shrink, 'trade_volume': nb,
+                            'current_price': mid,
+                        })
+
+    hist.append({
+        'ts': now,
+        'top_bid_map': cur_bid_map,
+        'top_ask_map': cur_ask_map,
+        'mid': mid,
+    })
+
+    recent = [e for e in events if now - e['ts'] <= ttl]
+    recent.sort(key=lambda e: e['ts'], reverse=True)
+    return recent[:10]
+
+
+def mock_absorption_events(mid):
+    """生成伪造事件用于前端视觉验证。"""
+    now = datetime.now(timezone.utc).timestamp()
+    sides = ['bid', 'ask']
+    out = []
+    for i in range(3):
+        side = sides[i % 2]
+        diff = random.uniform(0.03, 0.25) / 100
+        price = mid * (1 - diff) if side == 'bid' else mid * (1 + diff)
+        out.append({
+            'ts': now - random.uniform(2, 25),
+            'side': side,
+            'price': price,
+            'amount': random.uniform(0.5, 5.0),
+            'trade_volume': random.uniform(0.5, 5.0),
+            'current_price': mid,
+        })
+    out.sort(key=lambda e: e['ts'], reverse=True)
+    return out
+
+
 def analyze_large_orders(aggregated_bids, aggregated_asks):
     """分析订单簿中的大单信息"""
     try:
@@ -428,8 +634,21 @@ def api_symbols():
 
 
 @app.get("/api/orderbook")
-def api_orderbook(symbol: str = Query(default="BTC/USDT"), limit: int = Query(default=1000)):
-    """获取订单簿数据，包含聚合后的买卖盘、大单分析、EMA和趋势摘要"""
+def api_orderbook(
+    symbol: str = Query(default="BTC/USDT"),
+    limit: int = Query(default=1000),
+    mock_absorption: int = Query(default=0),
+    absorption_window: int = Query(default=_ABSORPTION_EVENT_TTL_DEFAULT, ge=5, le=_ABSORPTION_EVENT_TTL_MAX),
+):
+    """获取订单簿数据，包含聚合后的买卖盘、大单分析、EMA和趋势摘要。
+
+    新增字段：
+    - mm_bid_prices / mm_ask_prices：做市商近似对称挂单识别到的价格列表
+    - top_bids_filtered / top_asks_filtered：剔除 MM 后的 Top5
+    - large_order_filtered：剔除 MM 后重新计算的大单信息
+    - bid_top1_special_filtered / ask_top1_special_filtered
+    - absorption_events：最近大额挂单被吸收的事件（最多 5 条）
+    """
     try:
         aggregated_bids, aggregated_asks = fetch_and_aggregate_order_book(symbol, limit=limit)
 
@@ -438,8 +657,33 @@ def api_orderbook(symbol: str = Query(default="BTC/USDT"), limit: int = Query(de
 
         current_price = (aggregated_bids[0][0] + aggregated_asks[0][0]) / 2
 
-        # 大单分析
+        # 大单分析（原始）
         large_order = analyze_large_orders(aggregated_bids, aggregated_asks)
+
+        # MM 对称挂单识别
+        mm_bid_prices, mm_ask_prices = detect_mm_symmetric_pairs(
+            aggregated_bids, aggregated_asks, current_price
+        )
+
+        # Top5（原始 & 过滤 MM 后）
+        top_bids = sorted(aggregated_bids, key=lambda x: x[1], reverse=True)[:5]
+        top_asks = sorted(aggregated_asks, key=lambda x: x[1], reverse=True)[:5]
+        top_bids_f, top_asks_f = top_orders_excluding(
+            aggregated_bids, aggregated_asks, mm_bid_prices, mm_ask_prices, top_n=5
+        )
+        large_order_filtered = analyze_large_orders_from_tops(top_bids_f, top_asks_f, current_price)
+
+        bid_top2to5_sum = sum(a for _, a in top_bids[1:5])
+        ask_top2to5_sum = sum(a for _, a in top_asks[1:5])
+        bid_top2to5_sum_f = sum(a for _, a in top_bids_f[1:5])
+        ask_top2to5_sum_f = sum(a for _, a in top_asks_f[1:5])
+
+        # 吸收检测：使用原始 Top5 跟踪（避免 MM 过滤影响状态一致性）
+        absorption = update_absorption_events(
+            symbol, top_bids, top_asks, current_price, ttl=absorption_window
+        )
+        if mock_absorption:
+            absorption = mock_absorption_events(current_price)
 
         # 市场分析
         analysis_results, trend_results, ema_values = analyze_market(symbol, ['5m', '1h'])
@@ -447,20 +691,14 @@ def api_orderbook(symbol: str = Query(default="BTC/USDT"), limit: int = Query(de
         emas_1h = summarize_emas(ema_values, '1h')
         combined_summary = summarize_analysis(analysis_results, trend_results)
 
-        # Top 5 大单
-        top_bids = sorted(aggregated_bids, key=lambda x: x[1], reverse=True)[:5]
-        top_asks = sorted(aggregated_asks, key=lambda x: x[1], reverse=True)[:5]
-
-        bid_top2to5_sum = sum(amount for _, amount in top_bids[1:5])
-        ask_top2to5_sum = sum(amount for _, amount in top_asks[1:5])
-
         utc_8_time = datetime.now(timezone.utc).astimezone(
             timezone(timedelta(hours=8))
         ).strftime("%Y-%m-%d %H:%M:%S")
 
-        # 发送大单信息到 macOS 菜单栏
-        if large_order:
-            send_to_menubar(symbol, large_order)
+        # 发送大单信息到 macOS 菜单栏（使用过滤后版本更能反映真实方向性单）
+        menubar_order = large_order_filtered or large_order
+        if menubar_order:
+            send_to_menubar(symbol, menubar_order)
 
         return {
             "symbol": symbol,
@@ -470,9 +708,17 @@ def api_orderbook(symbol: str = Query(default="BTC/USDT"), limit: int = Query(de
             "asks": [{"price": p, "amount": a} for p, a in aggregated_asks],
             "top_bids": [{"price": p, "amount": a, "rank": i + 1} for i, (p, a) in enumerate(top_bids)],
             "top_asks": [{"price": p, "amount": a, "rank": i + 1} for i, (p, a) in enumerate(top_asks)],
+            "top_bids_filtered": [{"price": p, "amount": a, "rank": i + 1} for i, (p, a) in enumerate(top_bids_f)],
+            "top_asks_filtered": [{"price": p, "amount": a, "rank": i + 1} for i, (p, a) in enumerate(top_asks_f)],
+            "mm_bid_prices": sorted(mm_bid_prices, reverse=True),
+            "mm_ask_prices": sorted(mm_ask_prices),
             "bid_top1_special": top_bids[0][1] > ask_top2to5_sum if top_bids and ask_top2to5_sum > 0 else False,
             "ask_top1_special": top_asks[0][1] > bid_top2to5_sum if top_asks and bid_top2to5_sum > 0 else False,
+            "bid_top1_special_filtered": top_bids_f[0][1] > ask_top2to5_sum_f if top_bids_f and ask_top2to5_sum_f > 0 else False,
+            "ask_top1_special_filtered": top_asks_f[0][1] > bid_top2to5_sum_f if top_asks_f and bid_top2to5_sum_f > 0 else False,
             "large_order": large_order,
+            "large_order_filtered": large_order_filtered,
+            "absorption_events": absorption,
             "emas_5m": emas_5m,
             "emas_1h": emas_1h,
             "analysis": analysis_results,
